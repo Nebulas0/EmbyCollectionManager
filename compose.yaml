@@ -1,0 +1,47 @@
+services:
+  embycollectionmanager:
+    restart: unless-stopped
+    container_name: embycollectionmanager
+    image: embycollectionmanager:latest
+    hostname: embycollectionmanager
+    build: .
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - WEBUI_PORT=8282
+      - SYNC_TARGET=auto
+    networks:
+      - saltbox
+    labels:
+      com.github.saltbox.saltbox_managed: true
+      diun.enable: true
+      traefik.enable: true
+      # HTTP router (redirects to HTTPS, behind Authelia)
+      traefik.http.routers.embycollectionmanager-http.entrypoints: web
+      traefik.http.routers.embycollectionmanager-http.middlewares: globalHeaders@file,redirect-to-https@docker,robotHeaders@file,authelia@docker
+      traefik.http.routers.embycollectionmanager-http.priority: 20
+      traefik.http.routers.embycollectionmanager-http.rule: Host(`embycollectionmanager.mediahub.stream`)
+      traefik.http.routers.embycollectionmanager-http.service: embycollectionmanager-http
+      # HTTPS router (behind Authelia)
+      traefik.http.routers.embycollectionmanager.entrypoints: websecure
+      traefik.http.routers.embycollectionmanager.middlewares: globalHeaders@file,secureHeaders@file,robotHeaders@file,authelia@docker
+      traefik.http.routers.embycollectionmanager.priority: 20
+      traefik.http.routers.embycollectionmanager.rule: Host(`embycollectionmanager.mediahub.stream`)
+      traefik.http.routers.embycollectionmanager.service: embycollectionmanager
+      traefik.http.routers.embycollectionmanager.tls.certresolver: cfdns
+      traefik.http.routers.embycollectionmanager.tls.domains[0].main: mediahub.stream
+      traefik.http.routers.embycollectionmanager.tls.domains[0].sans: "*.mediahub.stream"
+      traefik.http.routers.embycollectionmanager.tls.options: securetls@file
+      # Service port
+      traefik.http.services.embycollectionmanager-http.loadbalancer.server.port: 8282
+      traefik.http.services.embycollectionmanager.loadbalancer.server.port: 8282
+    volumes:
+      - /opt/EmbyCollectionManager/config:/app/config
+      - /opt/EmbyCollectionManager/traktlists:/app/traktlists
+      - /opt/EmbyCollectionManager/mdblists:/app/mdblists
+      - /etc/localtime:/etc/localtime:ro
+
+networks:
+  saltbox:
+    external: true
