@@ -468,6 +468,118 @@ def delete_mdblist():
 
 
 
+
+# === Recipe Detail / Override / Duplicate ===
+
+@app.route('/api/recipe_detail/<path:recipe_name>')
+def recipe_detail(recipe_name):
+    """Get full details of a recipe including override config."""
+    from src.collection_recipes import RECIPES, CATEGORY_CONFIG
+    recipe = None
+    for r in RECIPES:
+        if r.get('name') == recipe_name:
+            recipe = r
+            break
+    if not recipe:
+        return jsonify({'error': 'Recipe not found'}), 404
+    
+    # Get override
+    from src.recipe_override import RecipeOverrideManager
+    mgr = RecipeOverrideManager(BASE_DIR)
+    override = mgr.get_override(recipe_name)
+    
+    # Get category name
+    cat_id = recipe.get('category_id', 0)
+    cat_name = CATEGORY_CONFIG.get(cat_id, {}).get('name', 'Unknown')
+    
+    # Build detail dict (exclude non-serializable stuff)
+    detail = {
+        'name': recipe.get('name'),
+        'source_type': recipe.get('source_type'),
+        'category_id': cat_id,
+        'category_name': cat_name,
+        'item_limit': recipe.get('item_limit'),
+        'tmdb_discover_params': recipe.get('tmdb_discover_params'),
+        'tmdb_collection_id': recipe.get('tmdb_collection_id'),
+        'trakt_list_params': recipe.get('trakt_list_params'),
+        'sort_by': recipe.get('sort_by'),
+        'override': override,
+    }
+    return jsonify(detail)
+
+
+@app.route('/api/recipe_override', methods=['POST'])
+def save_recipe_override():
+    """Save override config for a recipe."""
+    data = request.json
+    recipe_name = data.get('recipe_name')
+    override = data.get('override', {})
+    if not recipe_name:
+        return jsonify({'error': 'No recipe_name'}), 400
+    from src.recipe_override import RecipeOverrideManager
+    mgr = RecipeOverrideManager(BASE_DIR)
+    mgr.set_override(recipe_name, override)
+    return jsonify({'success': True})
+
+
+@app.route('/api/recipe_override_delete', methods=['POST'])
+def delete_recipe_override():
+    """Delete override for a recipe."""
+    data = request.json
+    recipe_name = data.get('recipe_name')
+    if not recipe_name:
+        return jsonify({'error': 'No recipe_name'}), 400
+    from src.recipe_override import RecipeOverrideManager
+    mgr = RecipeOverrideManager(BASE_DIR)
+    mgr.delete_override(recipe_name)
+    return jsonify({'success': True})
+
+
+@app.route('/api/recipe_duplicate', methods=['POST'])
+def duplicate_recipe():
+    """Create a duplicate of a recipe."""
+    data = request.json
+    original_name = data.get('original_name')
+    new_name = data.get('new_name')
+    if not original_name or not new_name:
+        return jsonify({'error': 'Missing original_name or new_name'}), 400
+    from src.recipe_override import RecipeOverrideManager
+    mgr = RecipeOverrideManager(BASE_DIR)
+    duplicate = {
+        'original_name': original_name,
+        'new_name': new_name,
+        'library_ids': data.get('library_ids', []),
+        'extra_mdblist_urls': data.get('extra_mdblist_urls', []),
+        'extra_trakt_urls': data.get('extra_trakt_urls', []),
+        'extra_tmdb_ids': data.get('extra_tmdb_ids', []),
+        'custom_poster_url': data.get('custom_poster_url'),
+        'custom_backdrop_url': data.get('custom_backdrop_url'),
+    }
+    idx = mgr.add_duplicate(duplicate)
+    return jsonify({'success': True, 'index': idx})
+
+
+@app.route('/api/recipe_duplicates')
+def list_duplicates():
+    """List all duplicate recipes."""
+    from src.recipe_override import RecipeOverrideManager
+    mgr = RecipeOverrideManager(BASE_DIR)
+    return jsonify(mgr.get_duplicates())
+
+
+@app.route('/api/recipe_duplicate_delete', methods=['POST'])
+def delete_duplicate():
+    """Delete a duplicate recipe by index."""
+    data = request.json
+    index = data.get('index')
+    if index is None:
+        return jsonify({'error': 'No index'}), 400
+    from src.recipe_override import RecipeOverrideManager
+    mgr = RecipeOverrideManager(BASE_DIR)
+    mgr.delete_duplicate(int(index))
+    return jsonify({'success': True})
+
+
 # === Artwork Management ===
 
 @app.route('/artwork')

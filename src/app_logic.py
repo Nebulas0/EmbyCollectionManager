@@ -6,6 +6,7 @@ from src.tmdb_client import TmdbClient
 from src.trakt_client import TraktClient
 from src.trakt_list_processor import TraktListProcessor
 from src.list_metadata import ListMetadataManager
+from src.recipe_override import RecipeOverrideManager
 from src.mdblist_client import MDBListClient
 from src.mdblist_processor import MDBListProcessor
 from src.emby_client import EmbyClient
@@ -263,8 +264,28 @@ def main():
     except Exception as e:
         logger.error(f"Error during MDBList processing: {e}")
 
-    # Process standard TMDb collections from recipes
-    for recipe in RECIPES:
+    # Initialize recipe override manager
+    override_mgr = RecipeOverrideManager(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    recipe_overrides = override_mgr.get_all_overrides()
+    recipe_duplicates = override_mgr.get_duplicates()
+    
+    # Build the effective recipe list: original recipes + duplicates
+    effective_recipes = list(RECIPES)
+    for dup in recipe_duplicates:
+        # Find the original recipe
+        orig_name = dup.get('original_name', '')
+        orig_recipe = next((r for r in RECIPES if r.get('name') == orig_name), None)
+        if orig_recipe:
+            # Create a copy with the new name
+            dup_recipe = dict(orig_recipe)
+            dup_recipe['name'] = dup.get('new_name', orig_name + ' (Copy)')
+            dup_recipe['_is_duplicate'] = True
+            dup_recipe['_duplicate_config'] = dup
+            effective_recipes.append(dup_recipe)
+            logger.info(f"Added duplicate recipe: '{dup_recipe['name']}' based on '{orig_name}'")
+    
+    # Process standard TMDb collections from recipes (including duplicates)
+    for recipe in effective_recipes:
         # Check if this recipe's targets include our active server
         targets = recipe.get('target_servers', ['emby'])
         
@@ -368,8 +389,60 @@ def main():
             poster_url = None
             backdrop_url = None
             
+            # Apply recipe overrides (library_ids, extra items, custom artwork)
+            dup_config = recipe.get('_duplicate_config', {})
+            is_duplicate = recipe.get('_is_duplicate', False)
+            override = recipe_overrides.get(collection_name, {})
+            
+            # Merge extra items from override or duplicate config
+            extra_mdblist_urls = override.get('extra_mdblist_urls', dup_config.get('extra_mdblist_urls', []))
+            extra_trakt_urls = override.get('extra_trakt_urls', dup_config.get('extra_trakt_urls', []))
+            extra_tmdb_ids = override.get('extra_tmdb_ids', dup_config.get('extra_tmdb_ids', []))
+            
+            # Process extra MDBList URLs
+            if extra_mdblist_urls and mdblist:
+                for url in extra_mdblist_urls:
+                    try:
+                        extra_items = mdblist.get_list_items(url)
+                        extra_ids = mdblist.extract_tmdb_ids(extra_items, 'movie')
+                        tmdb_ids.extend(extra_ids)
+                        logger.info(f"Added {len(extra_ids)} items from MDBList URL to '{collection_name}'")
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch extra MDBList URL {url}: {e}")
+            
+            # Process extra Trakt URLs
+            if extra_trakt_urls and trakt:
+                for url in extra_trakt_urls:
+                    try:
+                        import re as _re
+                        m = _re.match(r'https://trakt\.tv/users/([^/]+)/lists/([^/?]+)', url)
+                        if m:
+                            extra_items = trakt.get_list_items(m.group(1), m.group(2), 'movies')
+                            extra_ids = trakt.extract_tmdb_ids(extra_items, 'movie')
+                            tmdb_ids.extend(extra_ids)
+                            logger.info(f"Added {len(extra_ids)} items from Trakt URL to '{collection_name}'")
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch extra Trakt URL {url}: {e}")
+            
+            # Add extra TMDb IDs
+            if extra_tmdb_ids:
+                tmdb_ids.extend(extra_tmdb_ids)
+                logger.info(f"Added {len(extra_tmdb_ids)} manual TMDb IDs to '{collection_name}'")
+            
+            # Deduplicate
+            tmdb_ids = list(dict.fromkeys(tmdb_ids))
+            
+            # Determine library_ids: override > duplicate config > global
+            recipe_library_ids = override.get('library_ids', dup_config.get('library_ids'))
+            if not recipe_library_ids:
+                recipe_library_ids = config.get('emby', {}).get('library_ids')
+            
+            # Apply custom artwork from override
+            custom_poster = override.get('custom_poster_url', dup_config.get('custom_poster_url'))
+            custom_backdrop = override.get('custom_backdrop_url', dup_config.get('custom_backdrop_url'))
+            
             try:
-                collection_id = _sync_collection(emby, collection_name, tmdb_ids)
+                collection_id = _sync_collection(emby, collection_name, tmdb_ids, recipe_library_ids)
 
                 if collection_id: # Proceed only if collection sync was successful
                     # --- BEGIN IMPROVED ARTWORK FETCHING LOGIC ---
@@ -439,6 +512,14 @@ def main():
                         logger.info(f"Successfully found collection artwork for '{collection_name}'")
                     # --- END IMPROVED ARTWORK FETCHING LOGIC ---
 
+                    # Apply custom artwork overrides if set
+                    if custom_poster:
+                        poster_url = custom_poster
+                        logger.info(f"Using custom poster override for '{collection_name}'")
+                    if custom_backdrop:
+                        backdrop_url = custom_backdrop
+                        logger.info(f"Using custom backdrop override for '{collection_name}'")
+                    
                     if poster_url or backdrop_url: # Condition now checks the fetched URLs
                         logger.info(f"Attempting to update artwork for Emby collection '{collection_name}' (ID: {collection_id})")
                         if emby.update_collection_artwork(collection_id, poster_url, backdrop_url):
