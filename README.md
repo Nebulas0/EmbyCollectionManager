@@ -1,365 +1,322 @@
-# 🎬 Emby Collection Manager
+# Emby Collection Manager
 
-Emby Collection Manager is a Python application that automatically generates and syncs movie collections in your Emby server, using dynamic lists and franchise data fetched from The Movie Database (TMDb). Inspired by the Stremio TMDb collections addon, it keeps your media server collections fresh and relevant—no manual curation required.
+Automatically generates and syncs movie collections in your Emby server using TMDb, Trakt, and MDBList. Includes a full web UI for managing everything without touching config files.
 
-## ✨ Features
-- **🎭 Auto-generate collections**: Popular, Top Rated, New Releases, Genres, and major Franchises (e.g., Star Wars, James Bond, Harry Potter)
-- **📋 User-defined Trakt lists**: Create collections by pasting movie lists in the `traktlists/` directory
-- **🎬 MDBList integration**: Create collections from MDBList.com with unlimited pagination support
-- **🖼️ Beautiful collection artwork**: Automatically fetches and applies posters and backdrops from TMDb
-- **🎨 Custom poster generation**: Professional branded templates for Trakt and MDBList collections
-- **🔍 Smart server detection**: Auto-detects if Emby is configured
-- **📝 Customizable recipes**: Easily edit or extend collection logic in `src/collection_recipes.py`
-- **🛡️ Robust error handling & logging**
-- **⚙️ Configurable via YAML config file**
+Fork of [d3v1l1989/EmbyCollectionManager](https://github.com/d3v1l1989/EmbyCollectionManager) with added Web UI, per-collection library selection, artwork management, recipe overrides/duplicates, and Saltbox integration.
 
-## 📸 Screenshots
+## Features
 
-See Emby Collection Manager in action:
+### Web UI (port 8282)
+- **Dashboard** — sync control, next sync time, sync history, quick status
+- **Collections** — browse all 459 built-in recipes across 13 categories with live search/filter
+- **Libraries** — select which Emby libraries to scan globally
+- **Settings** — all config options with API key masking, test buttons, notifications, export/import
+- **Trakt Lists** — create/edit/delete Trakt list files with per-collection library selection
+- **MDBLists** — create/edit/delete MDBList files with per-collection library selection
+- **Artwork** — preview, upload, reset, and delete collection artwork in Emby
+- **Logs** — live sync log viewer with auto-refresh and download
 
-![Trakt and MDBList Collections](screenshots/screenshot0.png)
-*Trakt lists and MDBList collections automatically generated with custom branded posters*
+### Collection Management
+- 459 pre-configured collection recipes across 13 categories
+- Per-recipe overrides: custom name, item limit, target libraries, extra MDBList/Trakt URLs, extra TMDb IDs, custom artwork
+- Duplicate recipes (e.g. one "Popular Movies" for 1080p, one for 4K)
+- Single-recipe test sync from the UI
+- Collection preview — see what TMDb IDs would be in a collection before syncing
+- Enable/disable individual recipes or entire categories
 
-![Collection Overview](screenshots/screenshot1.jpeg)
-*Various movie collections organized by genre, franchise, and custom lists*
+### Per-Collection Library Selection
+- Each Trakt/MDBList file can target specific Emby libraries
+- Each recipe override can target specific libraries
+- Each duplicate can target specific libraries
+- Falls back to global library setting if not specified
 
-![Collection Details](screenshots/screenshot2.jpeg)
-*Individual collection view showing movies with artwork*
+### YAML List Format
+Both Trakt and MDBList support `.yaml` files in addition to `.txt`:
+```yaml
+collection_name: My Merged Collection
+library_ids:
+  - lib_id_1
+  - lib_id_2
+items:
+  - https://mdblist.com/lists/user/list1
+  - https://mdblist.com/lists/user/list2
+  - 12345
+  - "Movie Title"
+```
+- Multiple URLs merged into one collection
+- Custom collection name overrides filename
+- Per-collection library_ids, poster_url, backdrop_url, category_id
+- Also supports YAML frontmatter in `.txt` files
 
-![Collection Library](screenshots/screenshot3.jpeg)
-*Full collection library showing the breadth of automatically generated collections*
+### Artwork Management
+- View all Emby collections with poster thumbnails
+- Upload custom poster/backdrop images (png/jpg/gif/webp, max 10MB)
+- Reset images to default (deletes custom, lets sync regenerate)
+- Delete collections from Emby directly
 
-## 📋 Requirements
-- 🐍 Python 3.8+ (for direct installation)
-- 🐳 Docker (for containerized installation - recommended)
-- 🎬 Emby server (with API key and user ID)
-- 🔑 TMDb API key (free from [themoviedb.org](https://www.themoviedb.org/settings/api))
+### Sync Features
+- Background scheduler with configurable interval
+- Manual sync from dashboard
+- Single-recipe sync for testing
+- Sync history log (last 50 runs)
+- Live log viewer
 
-## 🚀 Quick Start (Docker)
+### Notifications
+- Discord/webhook notifications on sync start, success, and error
+- Configurable from Settings page
 
-1. Create a directory for the project and navigate into it
-2. Create a `config` subdirectory and add your `config/config.yaml` file (see example below)
-3. Create `traktlists` and `mdblists` subdirectories for your custom movie lists (optional)
-4. Run with Docker Compose:
-   ```sh
-   docker compose up -d
-   ```
+### Backup/Restore
+- Export all config, state, overrides, and list metadata as one JSON file
+- Import to restore everything at once
 
-## ⚙️ Configuration
+## Deployment
 
-Configure Emby Collection Manager using a **config.yaml** file in the config directory (example below):
+### Saltbox (recommended for this fork)
 
-### Example config.yaml
+Designed for Saltbox with Traefik + Authelia:
+
+1. Clone to `/opt/EmbyCollectionManager/`:
+```sh
+sudo mkdir -p /opt/EmbyCollectionManager
+sudo chown $(whoami):$(whoami) /opt/EmbyCollectionManager
+git clone https://github.com/Nebulas0/EmbyCollectionManager.git /opt/EmbyCollectionManager
+```
+
+2. Build and start:
+```sh
+cd /opt/EmbyCollectionManager
+docker compose up --build -d
+```
+
+3. Add a DNS record for `embycollectionmanager.yourdomain.tld` pointing to your server.
+
+4. Visit `https://embycollectionmanager.yourdomain.tld` — Authelia will prompt for login.
+
+The `compose.yaml` uses:
+- `saltbox` external network
+- Traefik labels with `authelia@docker` middleware
+- `cfdns` certresolver with wildcard `*.yourdomain.tld` cert
+- Volumes from `/opt/EmbyCollectionManager/`
+
+### Docker Compose (standalone)
+
+1. Clone and build:
+```sh
+git clone https://github.com/Nebulas0/EmbyCollectionManager.git
+cd EmbyCollectionManager
+docker compose up --build -d
+```
+
+2. Access at `http://localhost:8282`
+
+### Direct Python
+
+```sh
+git clone https://github.com/Nebulas0/EmbyCollectionManager.git
+cd EmbyCollectionManager
+pip install -r requirements.txt
+python main.py
+```
+
+Environment variables:
+- `WEBUI_PORT` — web UI port (default 8282)
+- `SYNC_TARGET` — sync target: `auto` or `emby`
+- `SYNC_ONLY=true` — run scheduler without web UI
+- `RUN_ONCE=true` — run a single sync and exit
+
+## Configuration
+
+All configuration is managed through the Web UI at `http://localhost:8282/settings`. The config file is at `config/config.yaml`:
 
 ```yaml
-# Config file for Emby Collection Manager
-# API keys and server details organized by service
-
-# TMDb configuration
 tmdb:
   api_key: "YOUR_TMDB_API_KEY"
 
-# Emby configuration
 emby:
   api_key: "YOUR_EMBY_API_KEY"
-  server_url: "http://emby:8096"  # Use your actual server address
+  server_url: "http://emby:8096"
   user_id: "YOUR_EMBY_USER_ID"
+  library_ids: []  # Optional: restrict scanning to specific libraries
 
-# Trakt configuration (optional - see "Getting API Keys" section below)
 trakt:
-  client_id: "YOUR_TRAKT_CLIENT_ID"      # Get from trakt.tv/oauth/applications
-  client_secret: "YOUR_TRAKT_CLIENT_SECRET"  # Get from trakt.tv/oauth/applications
+  client_id: "YOUR_TRAKT_CLIENT_ID"
+  client_secret: "YOUR_TRAKT_CLIENT_SECRET"
+  username: "me"
 
-# Trakt lists configuration
 traktlists:
-  enabled: true                          # Enable/disable Trakt list processing
-  directory: "traktlists"                # Directory to scan for Trakt list files
-  max_items_per_collection: 0            # Maximum items per collection (0 = no limit)
+  enabled: true
+  directory: "traktlists"
+  max_items_per_collection: 0
 
-# MDBList configuration (optional - for MDBList.com integration)
 mdblist:
-  api_key: "YOUR_MDBLIST_API_KEY"        # Get from https://mdblist.com/preferences
+  api_key: "YOUR_MDBLIST_API_KEY"
 
-# MDBList local files configuration
 mdblists:
-  enabled: true                          # Enable/disable MDBList processing
-  directory: "mdblists"                  # Directory to scan for MDBList files
-  max_items_per_collection: 0            # Maximum items per collection (0 = unlimited)
+  enabled: true
+  directory: "mdblists"
+  max_items_per_collection: 0
 
-# Custom poster generation settings
 poster_settings:
-  # Enable/disable custom poster generation when TMDb doesn't provide one
   enable_custom_posters: true
-  
-  # Template settings
-  template_name: "default.png"  # Template file in resources/templates/
-  
-  # Text settings
-  text_color: [255, 255, 255]  # RGB values for text color (white)
-  bg_color: [0, 0, 0, 128]     # RGBA values for text background (semi-transparent black)
-  text_position: 0.5           # Vertical position of text (0-1), 0.8 = 80% from top
+  template_name: "default.png"
+  text_color: [255, 255, 255]
+  bg_color: [0, 0, 0, 128]
+  text_position: 0.5
+
+notifications:
+  enabled: false
+  webhook_url: ""
+  notify_on_success: true
+  notify_on_error: true
 ```
 
+### Getting API Keys
+- **TMDb**: [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api)
+- **Emby**: Emby Dashboard → Advanced → Security
+- **Trakt**: [trakt.tv/oauth/applications](https://trakt.tv/oauth/applications) — Client ID (and Secret for private lists)
+- **MDBList**: [mdblist.com/preferences](https://mdblist.com/preferences)
 
+## User-Defined Lists
 
-## 🔧 Installation & Usage
+### Trakt Lists (`traktlists/`)
+Create `.txt` or `.yaml` files — one file = one collection (filename = collection name).
 
-### 🐳 Option 1: Docker Compose (Recommended)
-
-The easiest way to run Emby Collection Manager is with Docker Compose:
-
-1. Create a `docker-compose.yml` file with the following content:
-
-```yaml
-version: '3.8'
-
-services:
-  emby-collection-manager:
-    image: ghcr.io/d3v1l1989/emby-collection-manager:latest
-    container_name: emby-collection-manager
-    volumes:
-      - ./config:/app/config:ro
-      - ./traktlists:/app/traktlists:ro
-      - ./mdblists:/app/mdblists:ro
-    environment:
-      - SYNC_TARGET=auto  # Options: auto, emby
-    restart: unless-stopped
+`.txt` format (one item per line):
 ```
-
-2. Create a `config` directory and add your `config.yaml` file
-3. Optionally create `traktlists` and `mdblists` directories for your custom movie lists
-4. Start the service:
-
-```sh
-docker compose up -d
-```
-
-4. View logs:
-
-```sh
-docker compose logs -f emby-collection-manager
-```
-
-### 🐳 Option 2: Standalone Docker
-
-You can also run Emby Collection Manager directly with Docker:
-
-```sh
-docker run -d \
-  --name emby-collection-manager \
-  -e SYNC_TARGET=auto \
-  -v $(pwd)/config:/app/config:ro \
-  -v $(pwd)/traktlists:/app/traktlists:ro \
-  -v $(pwd)/mdblists:/app/mdblists:ro \
-  ghcr.io/d3v1l1989/emby-collection-manager:latest
-```
-
-On Windows PowerShell, use:
-
-```powershell
-docker run -d `
-  --name emby-collection-manager `
-  -e SYNC_TARGET=auto `
-  -v ${PWD}/config:/app/config:ro `
-  -v ${PWD}/traktlists:/app/traktlists:ro `
-  -v ${PWD}/mdblists:/app/mdblists:ro `
-  ghcr.io/d3v1l1989/emby-collection-manager:latest
-```
-
-### 🐍 Option 3: Direct Python Installation
-
-If you prefer to run without Docker:
-
-1. Clone the repository:
-   ```sh
-   git clone https://github.com/d3v1l1989/EmbyCollectionManager.git
-   cd EmbyCollectionManager
-   ```
-
-2. Install dependencies:
-   ```sh
-   pip install -r requirements.txt
-   ```
-
-3. Run the application:
-   ```sh
-   python -m src.app_logic --targets auto
-   ```
-
-## 🔄 Advanced Usage
-
-### 💻 Command-Line Options
-
-When running directly with Python, you have these options:
-
-```sh
-python -m src.app_logic --targets auto --config /path/to/config.yaml
-```
-
-Arguments:
-- `--targets [auto|emby]`: Which server to sync with
-- `--config PATH`: Path to config YAML file (default: config/config.yaml)
-
-### 🛠️ Building from Source
-
-To build the Docker image locally:
-
-```sh
-git clone https://github.com/d3v1l1989/EmbyCollectionManager.git
-cd EmbyCollectionManager
-docker build -t emby-collection-manager .
-```
-
-### 📚 Collection Recipes
-
-Emby Collection Manager comes with pre-configured collections like:
-
-- 🌟 Popular Movies on TMDb
-- 🏆 Top Rated Movies on TMDb
-- 🆕 New Releases (Last Year)
-- 🎭 Franchise Collections (Star Wars, James Bond, Harry Potter)
-- 📚 Genre Collections (Action, Drama, Comedy, etc.)
-
-You can customize these in `src/collection_recipes.py`.
-
-### 📋 User-Defined Lists
-
-Create your own movie collections using two different methods:
-
-#### 🎬 Trakt Lists (traktlists/)
-
-Create collections by placing text files in the `traktlists/` directory:
-
-#### How to Use
-
-1. **Create a text file** in the `traktlists/` directory
-   - Example: `My Favorite Movies.txt` becomes a collection called "My Favorite Movies"
-
-2. **Add your movies** using any of these formats:
-
-```
-# My Favorite Movies.txt
-
-# Movies by TMDb ID
-550        # Fight Club
-13         # Forrest Gump
-155        # The Dark Knight
-
-# Movies by title (searched automatically)
+# TMDb IDs, movie titles, or Trakt URLs
+550
 The Matrix
-Inception
-Pulp Fiction
-
-# Trakt list URLs
 https://trakt.tv/users/username/lists/my-list
 ```
 
-#### Supported Formats
-
-- **TMDb IDs**: `550` (Fight Club)
-- **Movie Titles**: `The Matrix` (automatically searched on TMDb)
-- **Trakt List URLs**: `https://trakt.tv/users/username/lists/list-name`
-- **Comments**: Lines starting with `#` for organization
-
-#### Trakt Features
-
-- **🎨 Custom Generated Posters**: Each collection gets a custom branded poster template
-- **📁 Simple Organization**: One file = one collection (filename becomes collection name)
-- **🔄 Automatic Processing**: Collections are created/updated every time the app runs
-- **⚙️ Configurable**: Control via `traktlists` section in config.yaml
-
-#### 🎬 MDBList Collections (mdblists/)
-
-Create collections using MDBList.com data by placing text files in the `mdblists/` directory:
-
-##### How to Use
-
-1. **Create a text file** in the `mdblists/` directory
-   - Example: `Action Favorites.txt` becomes a collection called "Action Favorites"
-
-2. **Add your movies** using any of these formats:
+### MDBLists (`mdblists/`)
+Create `.txt` or `.yaml` files — one file = one collection.
 
 ```
-# Action Favorites.txt
-
-# Movies by TMDb ID
-550        # Fight Club
-245891     # John Wick
-155        # The Dark Knight
-
-# Movies by title (searched automatically)
-Mad Max: Fury Road
-The Matrix
-Heat
-
-# MDBList URLs (requires API key)
-https://mdblist.com/lists/username/best-action-movies
+# TMDb IDs, movie titles, or MDBList URLs
+550
+The Dark Knight
+https://mdblist.com/lists/user/best-movies
 ```
 
-##### Supported Formats
+### YAML format (both Trakt and MDBList)
+```yaml
+collection_name: Custom Name
+library_ids:
+  - library_id_here
+items:
+  - https://trakt.tv/users/username/lists/list-name
+  - https://mdblist.com/lists/user/another-list
+  - 12345
+  - "Movie Title"
+```
 
-- **TMDb IDs**: `550` (Fight Club)
-- **Movie Titles**: `The Matrix` (automatically searched on TMDb)
-- **MDBList URLs**: `https://mdblist.com/lists/username/list-name` (requires API key)
-- **Comments**: Lines starting with `#` for organization
+## Per-Collection Library Selection
 
-##### MDBList Features
+From the Web UI:
+1. Go to **Trakt Lists** or **MDBLists**
+2. Click **Libraries** on any list file
+3. Select which Emby libraries that collection should scan
 
-- **🎨 Custom Branded Posters**: Professional MDBList-branded poster templates
-- **🔄 Unlimited Pagination**: Fetches all items from large MDBList collections automatically
-- **📁 Simple Organization**: One file = one collection (filename becomes collection name)
-- **🔄 Automatic Processing**: Collections are created/updated every time the app runs
-- **⚙️ Configurable**: Control via `mdblists` section in config.yaml
-- **🌐 API Integration**: Optional MDBList API key for accessing MDBList URLs
+For built-in recipes:
+1. Go to **Collections**
+2. Click **Edit** on any recipe
+3. Select target libraries in the override settings
 
-### 🖼️ Automatic Artwork
+This enables scenarios like:
+- One trending list scanning only the 1080p library
+- Another trending list scanning only the 4K library
+- A recipe duplicated for different quality libraries
 
-Emby Collection Manager automatically adds artwork to your collections:
+## Recipe Overrides and Duplicates
 
-- 🖼️ For franchise collections: Uses official TMDb collection artwork
-- 🎨 For dynamic collections (Popular, Genres): Uses artwork from the first movie
-- 🎨 For Trakt list collections: Uses custom branded poster templates with Trakt styling
-- 🎬 For MDBList collections: Uses custom branded poster templates with MDBList styling
+### Overrides
+Click **Edit** on any recipe to override:
+- Custom collection name
+- Item limit
+- Target libraries
+- Extra MDBList/Trakt URLs (merged into the collection)
+- Extra TMDb IDs
+- Custom poster/backdrop URLs
 
-## 🔍 Troubleshooting
+### Duplicates
+Click **Duplicate** on any recipe to create a copy with:
+- New collection name
+- Different target libraries
+- Extra items
 
-### ❓ Common Issues
+Stored in `config/recipe_overrides.json`.
 
-1. **🛑 The container exits immediately**
-   - Check that your TMDb API key is valid
-   - Check that your config file or environment variables are correctly set
-   - Look at the logs: `docker logs emby-collection-manager`
+## Artwork
 
-2. **❓ Collections don't appear in server**
-   - Ensure your Emby API key and user ID are correct
-   - Check server URL (make sure it's reachable from the container)
-   - Verify your media server has movies that match the TMDb IDs
+- **Franchise collections**: Uses official TMDb collection artwork
+- **Dynamic collections**: Custom generated posters with category-based templates
+- **Trakt/MDBList collections**: Custom branded poster templates
+- **Manual management**: Upload, reset, or delete artwork from the Artwork page
 
-3. **⚠️ No collections are synced**
-   - Set `SYNC_TARGET=auto` to let the app auto-detect available servers
-   - Check the `/config` volume mapping in your Docker setup
+## Project Structure
 
-## Getting API Keys
+```
+EmbyCollectionManager/
+├── main.py                    # Entry point: web UI + sync scheduler
+├── compose.yaml               # Saltbox-compatible Docker Compose
+├── Dockerfile
+├── entrypoint.sh
+├── requirements.txt
+├── config/
+│   ├── config.yaml            # Main configuration
+│   ├── webui_state.json       # UI state (enabled recipes, sync interval)
+│   ├── list_metadata.json     # Per-list library selection
+│   ├── recipe_overrides.json  # Recipe overrides + duplicates
+│   └── sync_history.json      # Sync run history
+├── src/
+│   ├── app_logic.py           # Main sync orchestration
+│   ├── emby_client.py         # Emby API client
+│   ├── tmdb_client.py         # TMDb API client
+│   ├── trakt_client.py        # Trakt API client
+│   ├── mdblist_client.py      # MDBList API client
+│   ├── collection_recipes.py  # 459 built-in recipes
+│   ├── trakt_list_processor.py
+│   ├── mdblist_processor.py
+│   ├── poster_generator.py    # Custom poster generation
+│   ├── collection_poster_manager.py
+│   ├── collection_poster_mapper.py
+│   ├── config_loader.py
+│   ├── logging_setup.py
+│   ├── list_metadata.py       # Per-list metadata manager
+│   ├── recipe_override.py     # Recipe override/duplicate manager
+│   ├── sync_history.py        # Sync history tracker
+│   └── notifier.py            # Discord/webhook notifications
+├── web/
+│   ├── app.py                 # Flask web application
+│   └── templates/
+│       ├── base.html
+│       ├── dashboard.html
+│       ├── collections.html
+│       ├── libraries.html
+│       ├── settings.html
+│       ├── artwork.html
+│       ├── logs.html
+│       ├── traktlists.html
+│       └── mdblists.html
+├── traktlists/                # User Trakt list files
+├── mdblists/                  # User MDBList files
+├── resources/                 # Poster templates
+└── examples/
+    └── custom_lists.yaml
+```
 
-- **TMDb**: Register at [themoviedb.org](https://www.themoviedb.org/settings/api) to get a free API key
-- **Emby**: Get your API key from Emby Dashboard → Advanced → Security
-- **Trakt** (optional, for Trakt list support):
-  1. Go to [trakt.tv/oauth/applications](https://trakt.tv/oauth/applications)
-  2. Create a new application (name it whatever you want)
-  3. Copy the **Client ID** - this is all you need for public lists
-  4. For private lists/authentication, you'll also need the **Client Secret**
-- **MDBList** (optional, for MDBList URL support):
-  1. Create a free account at [mdblist.com](https://mdblist.com)
-  2. Go to [mdblist.com/preferences](https://mdblist.com/preferences)
-  3. Copy your **API Key** - required for processing MDBList URLs in your collections
+## Troubleshooting
 
----
+1. **Container exits immediately** — check TMDb API key and config file
+2. **Collections don't appear in Emby** — verify Emby API key, user ID, and server URL in Settings
+3. **No collections synced** — set `SYNC_TARGET=auto`, check logs page
+4. **Web UI not accessible** — check port 8282 is exposed, or Traefik/Authelia config for Saltbox
+5. **Artwork not updating** — check `poster_settings.enable_custom_posters` in Settings
+6. **Preview shows 0 movies** — TMDb API key not configured or invalid
 
-## Contributing
-
-Contributions are welcome! Feel free to open issues or submit pull requests.
+View logs at `http://localhost:8282/logs` or with `docker logs embycollectionmanager`.
 
 ## License
 
 MIT License
-
