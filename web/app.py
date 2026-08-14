@@ -14,7 +14,7 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file
 
 # Add parent directory to path so we can import src modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,6 +23,20 @@ from src.config_loader import ConfigLoader
 from src.collection_recipes import RECIPES, CATEGORY_CONFIG
 
 logger = logging.getLogger("WebUI")
+
+# Provider hooks set by main.py
+_log_provider = None
+_sync_function = None
+_next_sync_provider = None
+
+def set_log_provider(fn):
+    global _log_provider
+    _log_provider = fn
+
+def set_sync_functions(sync_fn, next_sync_fn):
+    global _sync_function, _next_sync_provider
+    _sync_function = sync_fn
+    _next_sync_provider = next_sync_fn
 
 app = Flask(__name__)
 
@@ -731,6 +745,244 @@ def list_libraries():
     """Get available Emby libraries (for per-collection selection)."""
     libs = get_emby_libraries()
     return jsonify(libs)
+
+
+
+# === Logs Viewer ===
+
+@app.route('/logs')
+def logs_page():
+    return render_template('logs.html')
+
+
+@app.route('/api/logs')
+def api_logs():
+    n = request.args.get('lines', '100', type=int)
+    if _log_provider:
+        return jsonify({'lines': _log_provider(n)})
+    return jsonify({'lines': ''})
+
+
+# === Sync History ===
+
+@app.route('/api/sync_history')
+def sync_history():
+    from src.sync_history import SyncHistory
+    h = SyncHistory(BASE_DIR)
+    return jsonify(h.get_history(20))
+
+
+@app.route('/api/sync_history_clear', methods=['POST'])
+def sync_history_clear():
+    from src.sync_history import SyncHistory
+    h = SyncHistory(BASE_DIR)
+    h.clear()
+    return jsonify({'success': True})
+
+
+# === Single Recipe Sync ===
+
+@app.route('/api/sync_single', methods=['POST'])
+def sync_single():
+    data = request.json
+    recipe_name = data.get('recipe_name')
+    if not recipe_name:
+        return jsonify({'error': 'No recipe_name'}), 400
+    if sync_state['running']:
+        return jsonify({'error': 'A sync is already running'}), 409
+
+    def run_single():
+        global sync_state
+        sync_state['running'] = True
+        sync_state['last_error'] = None
+        sync_state['last_status'] = 'running'
+        sync_state['last_run'] = datetime.now().isoformat()
+        try:
+            if _sync_function:
+                _sync_function(single_recipe=recipe_name)
+            else:
+                # Fallback: use the web app's own sync
+                run_sync_background()
+            sync_state['last_status'] = 'success'
+        except Exception as e:
+            sync_state['last_status'] = 'error'
+            sync_state['last_error'] = str(e)
+        finally:
+            sync_state['running'] = False
+
+    thread = threading.Thread(target=run_single, daemon=True)
+    thread.start()
+    return jsonify({'success': True, 'message': f'Syncing {recipe_name}'})
+
+
+# === Next Sync Time ===
+
+@app.route('/api/next_sync')
+def next_sync():
+    if _next_sync_provider:
+        t = _next_sync_provider()
+        if t:
+            return jsonify({'next_sync': t.isoformat(), 'next_sync_display': t.strftime('%Y-%m-%d %H:%M:%S')})
+    return jsonify({'next_sync': None})
+
+
+# === Export/Import Config ===
+
+@app.route('/api/export_config')
+def export_config():
+    """Export all config as a single JSON file."""
+    import zipfile
+    import tempfile
+    config = load_config()
+    state = load_state()
+    # Load list metadata
+    list_meta = {}
+    meta_path = os.path.join(BASE_DIR, 'config', 'list_metadata.json')
+    try:
+        with open(meta_path, 'r') as f:
+            list_meta = json.load(f)
+    except Exception:
+        pass
+    # Load recipe overrides
+    recipe_ov = {}
+    ov_path = os.path.join(BASE_DIR, 'config', 'recipe_overrides.json')
+    try:
+        with open(ov_path, 'r') as f:
+            recipe_ov = json.load(f)
+    except Exception:
+        pass
+    export = {
+        'config': config,
+        'state': state,
+        'list_metadata': list_meta,
+        'recipe_overrides': recipe_ov,
+        'exported_at': datetime.now().isoformat(),
+        'version': 1,
+    }
+    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+    json.dump(export, tmp, indent=2)
+    tmp.close()
+    return send_file(tmp.name, as_attachment=True, download_name='ecm_config_backup.json')
+
+
+@app.route('/api/import_config', methods=['POST'])
+def import_config():
+    """Import config from a JSON file."""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file'}), 400
+    file = request.files['file']
+    try:
+        data = json.load(file)
+        if 'config' in data:
+            save_config(data['config'])
+        if 'state' in data:
+            save_state(data['state'])
+        if 'list_metadata' in data:
+            meta_path = os.path.join(BASE_DIR, 'config', 'list_metadata.json')
+            with open(meta_path, 'w') as f:
+                json.dump(data['list_metadata'], f, indent=2)
+        if 'recipe_overrides' in data:
+            ov_path = os.path.join(BASE_DIR, 'config', 'recipe_overrides.json')
+            with open(ov_path, 'w') as f:
+                json.dump(data['recipe_overrides'], f, indent=2)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# === Delete Emby Collection ===
+
+@app.route('/api/delete_collection', methods=['POST'])
+def delete_collection():
+    """Delete a collection from Emby."""
+    data = request.json
+    collection_id = data.get('collection_id')
+    if not collection_id:
+        return jsonify({'error': 'No collection_id'}), 400
+    try:
+        config = load_config()
+        emby_cfg = config.get('emby', {})
+        from src.emby_client import EmbyClient
+        emby = EmbyClient(
+            server_url=emby_cfg['server_url'],
+            api_key=emby_cfg['api_key'],
+            user_id=emby_cfg.get('user_id', ''),
+            config=config
+        )
+        url = f"{emby.server_url}/Items/{collection_id}?api_key={emby.api_key}"
+        resp = emby.session.delete(url, timeout=15)
+        if resp.status_code in [200, 204]:
+            return jsonify({'success': True})
+        return jsonify({'error': f'Delete failed: {resp.status_code}'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# === Collection Preview (TMDb IDs before sync) ===
+
+@app.route('/api/preview_collection/<path:recipe_name>')
+def preview_collection(recipe_name):
+    """Preview what TMDb IDs a recipe would produce without syncing."""
+    from src.collection_recipes import RECIPES
+    recipe = None
+    for r in RECIPES:
+        if r.get('name') == recipe_name:
+            recipe = r
+            break
+    if not recipe:
+        return jsonify({'error': 'Recipe not found'}), 404
+
+    config = load_config()
+    source_type = recipe.get('source_type')
+    item_limit = recipe.get('item_limit', 50)
+    tmdb_ids = []
+    movie_titles = []
+
+    try:
+        from src.tmdb_client import TmdbClient
+        tmdb = TmdbClient(api_key=config.get('tmdb', {}).get('api_key', ''))
+
+        if source_type in ('tmdb_discover', 'tmdb_discover_individual_movies'):
+            params = recipe.get('tmdb_discover_params', {})
+            movies = tmdb.discover_movies(params, item_limit)
+            tmdb_ids = [m['id'] for m in movies]
+            movie_titles = [{'id': m['id'], 'title': m.get('title', ''), 'year': m.get('release_date', '')[:4]} for m in movies]
+        elif source_type in ('tmdb_collection', 'tmdb_series_collection'):
+            col_id = recipe.get('tmdb_collection_id')
+            if col_id:
+                movies = tmdb.get_collection_movies(col_id, item_limit)
+                tmdb_ids = [m['id'] for m in movies]
+                movie_titles = [{'id': m['id'], 'title': m.get('title', ''), 'year': m.get('release_date', '')[:4]} for m in movies]
+        else:
+            return jsonify({'error': f'Preview not supported for source type: {source_type}. Use sync to test Trakt-based recipes.'})
+
+        return jsonify({
+            'recipe_name': recipe_name,
+            'source_type': source_type,
+            'count': len(tmdb_ids),
+            'movies': movie_titles[:50],  # Limit preview to 50
+            'total': len(tmdb_ids),
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# === Notifications Settings ===
+
+@app.route('/api/notifications', methods=['GET', 'POST'])
+def notifications():
+    if request.method == 'POST':
+        data = request.json
+        config = load_config()
+        config.setdefault('notifications', {})['enabled'] = data.get('enabled', False)
+        config['notifications']['webhook_url'] = data.get('webhook_url', '')
+        config['notifications']['notify_on_success'] = data.get('notify_on_success', True)
+        config['notifications']['notify_on_error'] = data.get('notify_on_error', True)
+        save_config(config)
+        return jsonify({'success': True})
+    else:
+        config = load_config()
+        return jsonify(config.get('notifications', {'enabled': False, 'webhook_url': '', 'notify_on_success': True, 'notify_on_error': True}))
 
 
 def start_webui(host='0.0.0.0', port=8282):
