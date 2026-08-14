@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Trakt Lists - Emby Collection Manager{% endblock %}
+{% block content %}
+<h1 style="margin-bottom:20px">Trakt Lists</h1>
+<div class="card"><p style="margin-bottom:15px;color:var(--text-dim)">Trakt list files in <code>{{ directory }}/</code>. One movie per line (TMDb ID, IMDb ID, or title).</p><button class="btn btn-primary" onclick="showNew()">+ New Trakt List</button></div>
+{% if files %}
+<div class="card"><h2>Existing Lists ({{ files|length }})</h2><ul class="file-list">
+{% for file in files %}
+<li class="file-item"><div class="file-item-header"><span>{{ file.name }}</span><div><button class="btn btn-secondary btn-sm" onclick="editFile('{{ file.name }}',{{ loop.index0 }})">Edit</button><button class="btn btn-secondary btn-sm" onclick="deleteFile('{{ file.name }}')" style="color:var(--red)">Delete</button></div></div><div class="file-content" id="content-{{ loop.index0 }}">{{ file.content }}</div></li>
+{% endfor %}
+</ul></div>
+{% else %}<div class="card"><p style="color:var(--text-dim)">No Trakt list files found.</p></div>{% endif %}
+<div class="modal" id="file-modal"><div class="modal-content"><h2 id="modal-title">New Trakt List</h2><div class="form-group"><label>Filename</label><input type="text" id="file-name" placeholder="My Collection.txt"></div><div class="form-group"><label>Content (one per line)</label><textarea id="file-content" rows="10" placeholder="tt0111161&#10;The Godfather&#10;272"></textarea></div><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn btn-secondary" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveFile()">Save</button></div></div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+function showNew(){document.getElementById('modal-title').textContent='New Trakt List';document.getElementById('file-name').value='';document.getElementById('file-content').value='';document.getElementById('file-name').disabled=false;document.getElementById('file-modal').classList.add('active')}
+function editFile(n,i){document.getElementById('modal-title').textContent='Edit: '+n;document.getElementById('file-name').value=n;document.getElementById('file-name').disabled=true;document.getElementById('file-content').value=document.getElementById('content-'+i).textContent;document.getElementById('file-modal').classList.add('active')}
+function closeModal(){document.getElementById('file-modal').classList.remove('active')}
+async function saveFile(){const n=document.getElementById('file-name').value;const c=document.getElementById('file-content').value;if(!n){alert('Enter filename');return}try{const r=await fetch('/traktlists/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,content:c})});const d=await r.json();if(d.success)location.reload();else alert(d.error||'Failed')}catch(e){alert('Error: '+e)}}
+async function deleteFile(n){if(!confirm('Delete '+n+'?'))return;try{const r=await fetch('/traktlists/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n})});const d=await r.json();if(d.success)location.reload();else alert(d.error||'Failed')}catch(e){alert('Error: '+e)}}
+</script>
+{% endblock %}

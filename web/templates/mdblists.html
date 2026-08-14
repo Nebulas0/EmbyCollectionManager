@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}MDBLists - Emby Collection Manager{% endblock %}
+{% block content %}
+<h1 style="margin-bottom:20px">MDBLists</h1>
+<div class="card"><p style="margin-bottom:15px;color:var(--text-dim)">MDBList files in <code>{{ directory }}/</code>. MDBList URLs or movie titles, one per line.</p><button class="btn btn-primary" onclick="showNew()">+ New MDBList</button></div>
+{% if files %}
+<div class="card"><h2>Existing Lists ({{ files|length }})</h2><ul class="file-list">
+{% for file in files %}
+<li class="file-item"><div class="file-item-header"><span>{{ file.name }}</span><div><button class="btn btn-secondary btn-sm" onclick="editFile('{{ file.name }}',{{ loop.index0 }})">Edit</button><button class="btn btn-secondary btn-sm" onclick="deleteFile('{{ file.name }}')" style="color:var(--red)">Delete</button></div></div><div class="file-content" id="content-{{ loop.index0 }}">{{ file.content }}</div></li>
+{% endfor %}
+</ul></div>
+{% else %}<div class="card"><p style="color:var(--text-dim)">No MDBList files found.</p></div>{% endif %}
+<div class="modal" id="file-modal"><div class="modal-content"><h2 id="modal-title">New MDBList</h2><div class="form-group"><label>Filename</label><input type="text" id="file-name" placeholder="Popular Movies.txt"></div><div class="form-group"><label>Content</label><textarea id="file-content" rows="10" placeholder="https://mdblist.com/lists/...&#10;The Dark Knight"></textarea></div><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn btn-secondary" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveFile()">Save</button></div></div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+function showNew(){document.getElementById('modal-title').textContent='New MDBList';document.getElementById('file-name').value='';document.getElementById('file-content').value='';document.getElementById('file-name').disabled=false;document.getElementById('file-modal').classList.add('active')}
+function editFile(n,i){document.getElementById('modal-title').textContent='Edit: '+n;document.getElementById('file-name').value=n;document.getElementById('file-name').disabled=true;document.getElementById('file-content').value=document.getElementById('content-'+i).textContent;document.getElementById('file-modal').classList.add('active')}
+function closeModal(){document.getElementById('file-modal').classList.remove('active')}
+async function saveFile(){const n=document.getElementById('file-name').value;const c=document.getElementById('file-content').value;if(!n){alert('Enter filename');return}try{const r=await fetch('/mdblists/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,content:c})});const d=await r.json();if(d.success)location.reload();else alert(d.error||'Failed')}catch(e){alert('Error: '+e)}}
+async function deleteFile(n){if(!confirm('Delete '+n+'?'))return;try{const r=await fetch('/mdblists/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n})});const d=await r.json();if(d.success)location.reload();else alert(d.error||'Failed')}catch(e){alert('Error: '+e)}}
+</script>
+{% endblock %}

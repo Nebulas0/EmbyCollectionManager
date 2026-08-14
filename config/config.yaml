@@ -1,5 +1,6 @@
 # Config file for Emby Collection Manager
 # API keys and server details organized by service
+# This file is managed by the Web UI at http://localhost:8282
 
 # TMDb configuration
 tmdb:
@@ -10,37 +11,36 @@ emby:
   api_key: "YOUR EMBY API KEY"
   server_url: "YOUR EMBY URL"
   user_id: "YOUR EMBY USER ID"
+  # Optional: list of library IDs to restrict scanning
+  # If empty or not set, all libraries will be scanned
+  library_ids: []
 
 # Trakt configuration (optional - see README.md for how to get these)
 trakt:
-  client_id: "YOUR TRAKT CLIENT ID"      # Get from trakt.tv/oauth/applications
-  client_secret: "YOUR TRAKT CLIENT SECRET"  # Get from trakt.tv/oauth/applications
+  client_id: "YOUR TRAKT CLIENT ID"
+  client_secret: "YOUR TRAKT CLIENT SECRET"
+  username: "me"
 
 # Trakt lists configuration
 traktlists:
-  enabled: true                          # Enable/disable Trakt list processing
-  directory: "traktlists"                # Directory to scan for Trakt list files
-  max_items_per_collection: 0            # Maximum items per collection (0 = no limit)
+  enabled: true
+  directory: "traktlists"
+  max_items_per_collection: 0
 
-# MDBList configuration (optional - see docs for getting API key)
+# MDBList configuration (optional)
 mdblist:
-  api_key: "YOUR MDBLIST API KEY"        # Get from https://mdblist.com/preferences
+  api_key: "YOUR MDBLIST API KEY"
 
 # MDBList local files configuration
 mdblists:
-  enabled: true                          # Enable/disable MDBList processing
-  directory: "mdblists"                  # Directory to scan for MDBList files
-  max_items_per_collection: 0            # Maximum items per collection (0 = unlimited)
+  enabled: true
+  directory: "mdblists"
+  max_items_per_collection: 0
 
 # Custom poster generation settings
 poster_settings:
-  # Enable/disable custom poster generation when TMDb doesn't provide one
   enable_custom_posters: true
-  
-  # Template settings
-  template_name: "default.png"  # Template file in resources/templates/
-  
-  # Text settings
-  text_color: [255, 255, 255]  # RGB values for text color (white)
-  bg_color: [0, 0, 0, 128]     # RGBA values for text background (semi-transparent black)
-  text_position: 0.5           # Vertical position of text (0-1), 0.5 = centered
+  template_name: "default.png"
+  text_color: [255, 255, 255]
+  bg_color: [0, 0, 0, 128]
+  text_position: 0.5

@@ -138,7 +138,7 @@ def main():
                     logger.info(f"Processing Trakt collection: {collection_name}")
                     
                     if emby:
-                        collection_id = _sync_collection(emby, collection_name, tmdb_ids)
+                        collection_id = _sync_collection(emby, collection_name, tmdb_ids, config.get('emby', {}).get('library_ids'))
                         
                         if collection_id:
                             # Use custom poster generation for Trakt collections
@@ -192,7 +192,7 @@ def main():
                     logger.info(f"Processing MDBList collection: {collection_name}")
                     
                     if emby:
-                        collection_id = _sync_collection(emby, collection_name, tmdb_ids)
+                        collection_id = _sync_collection(emby, collection_name, tmdb_ids, config.get('emby', {}).get('library_ids'))
                         
                         if collection_id:
                             # Use custom poster generation for MDBList collections
@@ -468,7 +468,7 @@ def get_random_movie_artwork(tmdb_client, tmdb_ids, collection_name):
         logger.error(f"Error fetching artwork for movie ID {selected_movie_id}: {e}")
         return None, None
 
-def _sync_collection(server_client, collection_name, tmdb_ids):
+def _sync_collection(server_client, collection_name, tmdb_ids, library_ids=None):
     """
     Sync a collection to a media server. Creates the collection if it doesn't exist,
     and adds the matching library items to it.
@@ -477,6 +477,7 @@ def _sync_collection(server_client, collection_name, tmdb_ids):
         server_client: The media server client (Emby/Jellyfin)
         collection_name: Name of the collection
         tmdb_ids: List of TMDb movie IDs to add to the collection
+        library_ids: Optional list of library IDs to restrict search to
         
     Returns:
         The collection ID if successful, None otherwise
@@ -488,7 +489,7 @@ def _sync_collection(server_client, collection_name, tmdb_ids):
             logger.error(f"    Failed to get or create collection '{collection_name}'")
             return None
             
-        owned_item_ids = server_client.get_library_item_ids_by_tmdb_ids(tmdb_ids)
+        owned_item_ids = server_client.get_library_item_ids_by_tmdb_ids(tmdb_ids, library_ids)
         if not owned_item_ids:
             logger.warning(f"    No owned items found for collection '{collection_name}'")
             return collection_id  # Still return the ID for artwork updates
@@ -604,7 +605,7 @@ def process_custom_list(list_info: Dict[str, Any], tmdb_client: TmdbClient, trak
     
     # Create/update the collection
     try:
-        collection_id = _sync_collection(emby_client, collection_name, unique_tmdb_ids)
+        collection_id = _sync_collection(emby_client, collection_name, unique_tmdb_ids, config.get('emby', {}).get('library_ids') if config else None)
         if collection_id:
             logger.info(f"Successfully processed custom list '{collection_name}'")
         else:

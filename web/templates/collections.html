@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Collections - Emby Collection Manager{% endblock %}
+{% block content %}
+<h1 style="margin-bottom:20px">Collection Recipes</h1>
+<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px">
+        <div><button class="btn btn-green btn-sm" onclick="toggleAll(true)">Enable All</button><button class="btn btn-secondary btn-sm" onclick="toggleAll(false)">Disable All</button></div>
+    </div>
+    {% for cat_id,cat in categories %}
+    <div class="category-header"><span>{{ cat.name }}</span><div><button class="btn btn-secondary btn-sm" onclick="toggleCategory({{ cat_id }},true)">Enable</button><button class="btn btn-secondary btn-sm" onclick="toggleCategory({{ cat_id }},false)">Disable</button></div></div>
+    <ul class="recipe-list">
+        {% for recipe in cat.recipes %}
+        <li class="recipe-item"><div class="recipe-name">{{ recipe.name }}<span class="recipe-cat">{{ recipe.source_type }}</span></div><label class="toggle"><input type="checkbox" {% if recipe.enabled %}checked{% endif %} onchange="toggleRecipe('{{ recipe.name }}',this.checked)"><span class="toggle-slider"></span></label></li>
+        {% endfor %}
+    </ul>
+    {% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function toggleRecipe(n,e){await fetch('/api/toggle_recipe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,enabled:e})})}
+async function toggleAll(en){await fetch('/api/toggle_all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enable:en})});location.reload()}
+async function toggleCategory(c,e){await fetch('/api/toggle_category',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category_id:c,enabled:e})});location.reload()}
+</script>
+{% endblock %}

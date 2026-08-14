@@ -2,14 +2,15 @@ version: '3.8'
 
 services:
   emby-collection-manager:
-    image: ghcr.io/d3v1l1989/emby-collection-manager:latest
+    build: .
     container_name: emby-collection-manager
+    ports:
+      - "8282:8282"
     volumes:
-      - ./config:/app/config:ro
-      - ./traktlists:/app/traktlists:ro
-      - ./mdblists:/app/mdblists:ro
-    # Configuration is controlled via config.yaml
-    # You can still override specific settings with environment variables if needed
+      - ./config:/app/config
+      - ./traktlists:/app/traktlists
+      - ./mdblists:/app/mdblists
     environment:
-      - SYNC_TARGET=auto  # Options: auto, emby
+      - WEBUI_PORT=8282
+      - SYNC_TARGET=auto
     restart: unless-stopped

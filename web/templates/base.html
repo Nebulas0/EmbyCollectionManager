@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Emby Collection Manager{% endblock %}</title>
+    <style>
+        :root{--bg:#0f0f0f;--card:#1a1a2e;--card-hover:#222240;--accent:#e50914;--accent-hover:#f6121d;--text:#e0e0e0;--text-dim:#888;--border:#2a2a4a;--green:#46d369;--red:#e50914;--yellow:#f5c518}
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+        .nav{background:var(--card);border-bottom:2px solid var(--accent);padding:0 20px;display:flex;align-items:center;height:60px;position:sticky;top:0;z-index:100;flex-wrap:wrap}
+        .nav-brand{font-size:1.3rem;font-weight:bold;color:var(--accent);margin-right:30px}
+        .nav a{color:var(--text-dim);text-decoration:none;padding:10px 16px;border-radius:4px;transition:all .2s}
+        .nav a:hover{color:var(--text);background:var(--card-hover)}
+        .nav a.active{color:var(--text);background:var(--card-hover)}
+        .container{max-width:1200px;margin:20px auto;padding:0 20px}
+        .card{background:var(--card);border-radius:8px;padding:20px;margin-bottom:20px;border:1px solid var(--border)}
+        .card h2{margin-bottom:15px;color:var(--text);font-size:1.2rem}
+        .form-group{margin-bottom:15px}
+        .form-group label{display:block;margin-bottom:5px;color:var(--text-dim);font-size:.9rem}
+        .form-group input,.form-group select,.form-group textarea{width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:.95rem}
+        .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--accent);outline:none}
+        .form-row{display:flex;gap:15px}
+        .form-row .form-group{flex:1}
+        .btn{padding:10px 20px;border:none;border-radius:4px;cursor:pointer;font-size:.95rem;transition:all .2s;text-decoration:none;display:inline-block}
+        .btn-primary{background:var(--accent);color:#fff}
+        .btn-primary:hover{background:var(--accent-hover)}
+        .btn-secondary{background:var(--card-hover);color:var(--text);border:1px solid var(--border)}
+        .btn-secondary:hover{background:var(--border)}
+        .btn-green{background:var(--green);color:#000}
+        .btn-green:hover{opacity:.9}
+        .btn-sm{padding:5px 12px;font-size:.85rem}
+        .alert{padding:12px 16px;border-radius:4px;margin-bottom:15px}
+        .alert-success{background:rgba(70,211,105,.15);border:1px solid var(--green);color:var(--green)}
+        .alert-error{background:rgba(229,9,20,.15);border:1px solid var(--red);color:var(--red)}
+        .alert-info{background:rgba(245,197,24,.15);border:1px solid var(--yellow);color:var(--yellow)}
+        .toggle{position:relative;width:44px;height:24px;display:inline-block}
+        .toggle input{opacity:0;width:0;height:0}
+        .toggle-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:24px;transition:.3s}
+        .toggle-slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s}
+        .toggle input:checked+.toggle-slider{background:var(--green)}
+        .toggle input:checked+.toggle-slider:before{transform:translateX(20px)}
+        .recipe-list{list-style:none}
+        .recipe-item{display:flex;align-items:center;justify-content:space-between;padding:10px 15px;border-bottom:1px solid var(--border);transition:background .2s}
+        .recipe-item:hover{background:var(--card-hover)}
+        .recipe-item:last-child{border-bottom:none}
+        .recipe-name{flex:1}
+        .recipe-cat{font-size:.75rem;color:var(--text-dim);background:var(--bg);padding:3px 8px;border-radius:12px;margin-left:10px}
+        .category-header{display:flex;align-items:center;justify-content:space-between;padding:12px 15px;background:var(--bg);border-radius:4px;margin:15px 0 8px;font-weight:bold}
+        .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:15px}
+        .stat-card{background:var(--card);border-radius:8px;padding:20px;text-align:center;border:1px solid var(--border)}
+        .stat-value{font-size:2rem;font-weight:bold;color:var(--accent)}
+        .stat-label{color:var(--text-dim);font-size:.85rem;margin-top:5px}
+        .sync-dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+        .sync-dot.idle{background:var(--text-dim)}
+        .sync-dot.running{background:var(--yellow);animation:pulse 1s infinite}
+        .sync-dot.success{background:var(--green)}
+        .sync-dot.error{background:var(--red)}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+        .lib-item{display:flex;align-items:center;justify-content:space-between;padding:12px 15px;border-bottom:1px solid var(--border)}
+        .lib-item:hover{background:var(--card-hover)}
+        .lib-info{flex:1}
+        .lib-name{font-weight:500}
+        .lib-type{font-size:.8rem;color:var(--text-dim)}
+        .checkbox{width:20px;height:20px;cursor:pointer;accent-color:var(--accent)}
+        .file-list{list-style:none}
+        .file-item{padding:12px 15px;border:1px solid var(--border);border-radius:4px;margin-bottom:10px}
+        .file-item-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+        .file-content{background:var(--bg);padding:10px;border-radius:4px;font-family:'Courier New',monospace;font-size:.85rem;white-space:pre-wrap;max-height:200px;overflow-y:auto;color:var(--text-dim)}
+        .modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);z-index:200;justify-content:center;align-items:center}
+        .modal.active{display:flex}
+        .modal-content{background:var(--card);border-radius:8px;padding:25px;width:90%;max-width:600px;border:1px solid var(--border)}
+        .test-result{padding:8px 12px;border-radius:4px;margin-top:10px;font-size:.9rem}
+        .test-result.ok{background:rgba(70,211,105,.15);color:var(--green)}
+        .test-result.fail{background:rgba(229,9,20,.15);color:var(--red)}
+        @media(max-width:768px){.form-row{flex-direction:column}.nav{height:auto;padding:10px}.nav a{padding:8px 10px;font-size:.85rem}}
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <div class="nav-brand">ECM</div>
+        <a href="/dashboard" class="{% if request.path == '/dashboard' %}active{% endif %}">Dashboard</a>
+        <a href="/collections" class="{% if request.path == '/collections' %}active{% endif %}">Collections</a>
+        <a href="/libraries" class="{% if request.path == '/libraries' %}active{% endif %}">Libraries</a>
+        <a href="/settings" class="{% if request.path == '/settings' %}active{% endif %}">Settings</a>
+        <a href="/traktlists" class="{% if request.path == '/traktlists' %}active{% endif %}">Trakt Lists</a>
+        <a href="/mdblists" class="{% if request.path == '/mdblists' %}active{% endif %}">MDBLists</a>
+    </nav>
+    <div class="container">{% block content %}{% endblock %}</div>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -46,7 +46,10 @@ class MediaServerClient:
     def get_or_create_collection(self, collection_name: str) -> Optional[str]:
         raise NotImplementedError
 
-    def get_library_item_ids_by_tmdb_ids(self, tmdb_ids: List[int]) -> List[str]:
+    def get_library_item_ids_by_tmdb_ids(self, tmdb_ids: List[int], library_ids: List[str] = None) -> List[str]:
+        raise NotImplementedError
+
+    def get_libraries(self) -> list:
         raise NotImplementedError
 
     def update_collection_items(self, collection_id: str, item_ids: List[str]) -> bool:

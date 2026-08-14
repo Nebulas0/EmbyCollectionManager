@@ -129,13 +129,37 @@ class EmbyClient(MediaServerClient):
             logger.error(f"Error during collection creation: {e}")
             return None
             
-    def get_library_item_ids_by_tmdb_ids(self, tmdb_ids: List[int]) -> List[str]:
+    def get_libraries(self) -> List[Dict[str, Any]]:
+        """
+        Get all libraries (virtual folders) from the Emby server.
+        Returns a list of dicts with Id, Name, CollectionType.
+        """
+        try:
+            endpoint = "/Library/VirtualFolders"
+            data = self._make_api_request('GET', endpoint)
+            libraries = []
+            if data and isinstance(data, list):
+                for folder in data:
+                    libraries.append({
+                        'Id': folder.get('ItemId') or folder.get('Id'),
+                        'Name': folder.get('Name', 'Unknown'),
+                        'CollectionType': folder.get('CollectionType', ''),
+                        'Locations': folder.get('Locations', [])
+                    })
+            return libraries
+        except Exception as e:
+            logger.error(f"Error getting libraries: {e}")
+            return []
+
+    def get_library_item_ids_by_tmdb_ids(self, tmdb_ids: List[int], library_ids: List[str] = None) -> List[str]:
         """
         Given a list of TMDb IDs, return the Emby server's internal item IDs for owned movies.
         Uses direct provider ID lookup only for optimal performance.
         
         Args:
             tmdb_ids: List of TMDb movie IDs.
+            library_ids: Optional list of Emby library IDs to restrict the search to.
+                         If None or empty, searches all libraries.
         Returns:
             List of Emby item IDs (str).
         """
@@ -150,7 +174,15 @@ class EmbyClient(MediaServerClient):
         found_tmdb_ids = set()
         total_to_find = len(tmdb_ids_str)
         
-        logger.info(f"Searching for {total_to_find} TMDb movies using direct ID lookup...")
+        # Determine which libraries to search
+        search_library_ids = None
+        if library_ids:
+            search_library_ids = [lid for lid in library_ids if lid]
+        
+        if search_library_ids:
+            logger.info(f"Searching for {total_to_find} TMDb movies in {len(search_library_ids)} selected libraries...")
+        else:
+            logger.info(f"Searching for {total_to_find} TMDb movies using direct ID lookup...")
         
         try:
             # Use Emby's AnyProviderIdEquals parameter to directly search for TMDb IDs
@@ -178,6 +210,40 @@ class EmbyClient(MediaServerClient):
                     # Add a cache-busting parameter to avoid stale results
                     '_cb': str(uuid.uuid4().hex),
                 }
+                
+                # If specific libraries are selected, search each one separately
+                # because Emby's ParentId parameter only accepts a single ID
+                if search_library_ids:
+                    for lib_id in search_library_ids:
+                        params_copy = dict(params)
+                        params_copy['ParentId'] = lib_id
+                        endpoint = f"/Users/{self.user_id}/Items"
+                        data = self._make_api_request('GET', endpoint, params=params_copy)
+                        if not data:
+                            continue
+                        items = data.get('Items', [])
+                        if not items:
+                            continue
+                        for item in items:
+                            provider_ids = item.get('ProviderIds', {})
+                            if not provider_ids:
+                                continue
+                            tmdb_id = None
+                            if 'Tmdb' in provider_ids:
+                                tmdb_id = provider_ids['Tmdb']
+                            elif 'TMDb' in provider_ids:
+                                tmdb_id = provider_ids['TMDb']
+                            elif 'tmdb' in provider_ids:
+                                tmdb_id = provider_ids['tmdb']
+                            if tmdb_id and tmdb_id in tmdb_ids_str and tmdb_id not in found_tmdb_ids:
+                                found_item_ids.append(item['Id'])
+                                found_tmdb_ids.add(tmdb_id)
+                    if batch_counter % 5 == 0 or len(found_tmdb_ids) > 0:
+                        logger.info(f"Found {len(found_item_ids)} of {total_to_find} TMDb movies so far...")
+                    if len(found_tmdb_ids) >= len(tmdb_ids_str):
+                        logger.info("Found all requested TMDb movies!")
+                        break
+                    continue
                 
                 endpoint = f"/Users/{self.user_id}/Items"
                 
