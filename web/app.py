@@ -364,9 +364,13 @@ def test_mdblist():
 
 
 def _safe_filename(name):
-    if not name or not name.endswith('.txt'):
+    if not name:
         return None
-    if not re.match(r'^[\w\-\s]+\.txt$', name):
+    # Allow .txt, .yaml, .yml
+    valid_exts = ('.txt', '.yaml', '.yml')
+    if not any(name.endswith(ext) for ext in valid_exts):
+        return None
+    if not re.match(r'^[\w\-\s]+\.(txt|yaml|yml)$', name):
         return None
     return name
 
@@ -379,7 +383,7 @@ def traktlists():
     files = []
     if os.path.isdir(p):
         for f in sorted(os.listdir(p)):
-            if f.endswith('.txt'):
+            if f.endswith(('.txt', '.yaml', '.yml')):
                 with open(os.path.join(p, f), 'r', encoding='utf-8') as fh:
                     c = fh.read()
                 files.append({'name': f, 'content': c, 'lines': len(c.splitlines())})
@@ -425,7 +429,7 @@ def mdblists():
     files = []
     if os.path.isdir(p):
         for f in sorted(os.listdir(p)):
-            if f.endswith('.txt'):
+            if f.endswith(('.txt', '.yaml', '.yml')):
                 with open(os.path.join(p, f), 'r', encoding='utf-8') as fh:
                     c = fh.read()
                 files.append({'name': f, 'content': c, 'lines': len(c.splitlines())})
@@ -461,6 +465,160 @@ def delete_mdblist():
         os.remove(fp)
         return jsonify({'success': True})
     return jsonify({'error': 'File not found'}), 404
+
+
+
+# === Artwork Management ===
+
+@app.route('/artwork')
+def artwork():
+    """Show all Emby collections with artwork management."""
+    config = load_config()
+    emby_cfg = config.get('emby', {})
+    if not emby_cfg.get('server_url') or not emby_cfg.get('api_key'):
+        return render_template('artwork.html', collections=[], error="Emby not configured")
+    try:
+        from src.emby_client import EmbyClient
+        emby = EmbyClient(
+            server_url=emby_cfg['server_url'],
+            api_key=emby_cfg['api_key'],
+            user_id=emby_cfg.get('user_id', ''),
+            config=config
+        )
+        collections = emby.get_all_collections()
+        # Build image URLs for each collection
+        base_url = emby_cfg['server_url'].rstrip('/')
+        api_key = emby_cfg['api_key']
+        for col in collections:
+            col_id = col.get('Id', '')
+            col['poster_url'] = f"{base_url}/Items/{col_id}/Images/Primary?api_key={api_key}"
+            col['backdrop_url'] = f"{base_url}/Items/{col_id}/Images/Backdrop?api_key={api_key}"
+        return render_template('artwork.html', collections=collections, error=None)
+    except Exception as e:
+        return render_template('artwork.html', collections=[], error=str(e))
+
+
+@app.route('/api/collection_image', methods=['POST'])
+def get_collection_image():
+    """Get current collection image as base64 for preview."""
+    data = request.json
+    collection_id = data.get('collection_id')
+    image_type = data.get('image_type', 'Primary')
+    if not collection_id:
+        return jsonify({'error': 'No collection_id'}), 400
+    try:
+        config = load_config()
+        emby_cfg = config.get('emby', {})
+        from src.emby_client import EmbyClient
+        emby = EmbyClient(
+            server_url=emby_cfg['server_url'],
+            api_key=emby_cfg['api_key'],
+            user_id=emby_cfg.get('user_id', ''),
+            config=config
+        )
+        result = emby.get_collection_image(collection_id, image_type)
+        return jsonify(result or {'has_image': False})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/upload_image', methods=['POST'])
+def upload_image():
+    """Upload a custom image for a collection."""
+    collection_id = request.form.get('collection_id')
+    image_type = request.form.get('image_type', 'Primary')
+    if 'file' not in request.files or not collection_id:
+        return jsonify({'error': 'No file or collection_id'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    # Validate file type
+    allowed = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if ext not in allowed:
+        return jsonify({'error': f'Invalid file type. Allowed: {allowed}'}), 400
+    content_types = {
+        'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+        'gif': 'image/gif', 'webp': 'image/webp'
+    }
+    content_type = content_types.get(ext, 'image/jpeg')
+    image_data = file.read()
+    # Limit to 10MB
+    if len(image_data) > 10 * 1024 * 1024:
+        return jsonify({'error': 'File too large (max 10MB)'}), 400
+    try:
+        config = load_config()
+        emby_cfg = config.get('emby', {})
+        from src.emby_client import EmbyClient
+        emby = EmbyClient(
+            server_url=emby_cfg['server_url'],
+            api_key=emby_cfg['api_key'],
+            user_id=emby_cfg.get('user_id', ''),
+            config=config
+        )
+        success = emby.upload_collection_image_from_data(collection_id, image_data, image_type, content_type)
+        if success:
+            return jsonify({'success': True})
+        return jsonify({'error': 'Upload failed'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/reset_image', methods=['POST'])
+def reset_image():
+    """Reset a collection image to default (delete custom image)."""
+    data = request.json
+    collection_id = data.get('collection_id')
+    image_type = data.get('image_type', 'Primary')
+    if not collection_id:
+        return jsonify({'error': 'No collection_id'}), 400
+    try:
+        config = load_config()
+        emby_cfg = config.get('emby', {})
+        from src.emby_client import EmbyClient
+        emby = EmbyClient(
+            server_url=emby_cfg['server_url'],
+            api_key=emby_cfg['api_key'],
+            user_id=emby_cfg.get('user_id', ''),
+            config=config
+        )
+        success = emby.delete_collection_image(collection_id, image_type)
+        if success:
+            return jsonify({'success': True})
+        return jsonify({'error': 'Reset failed'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# === Per-Collection Library Selection ===
+
+@app.route('/api/list_config', methods=['GET', 'POST'])
+def list_config():
+    """Get or set per-collection config (library_ids, custom name, etc)."""
+    if request.method == 'GET':
+        list_type = request.args.get('type', 'traktlists')
+        from src.list_metadata import ListMetadataManager
+        mgr = ListMetadataManager(BASE_DIR)
+        configs = mgr.get_all_configs(list_type)
+        return jsonify(configs)
+    else:
+        data = request.json
+        list_type = data.get('type')
+        filename = data.get('filename')
+        config = data.get('config', {})
+        if not list_type or not filename:
+            return jsonify({'error': 'Missing type or filename'}), 400
+        from src.list_metadata import ListMetadataManager
+        mgr = ListMetadataManager(BASE_DIR)
+        mgr.set_list_config(list_type, filename, config)
+        return jsonify({'success': True})
+
+
+@app.route('/api/list_libraries')
+def list_libraries():
+    """Get available Emby libraries (for per-collection selection)."""
+    libs = get_emby_libraries()
+    return jsonify(libs)
 
 
 def start_webui(host='0.0.0.0', port=8282):

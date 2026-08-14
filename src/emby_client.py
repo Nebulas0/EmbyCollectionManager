@@ -801,3 +801,101 @@ class EmbyClient(MediaServerClient):
                 logger.error(f"Error updating collection backdrop: {e}")
             
         return success
+
+    def get_collection_image(self, collection_id: str, image_type: str = 'Primary') -> Optional[Dict[str, Any]]:
+        """
+        Get the current image for a collection.
+        
+        Args:
+            collection_id: The Emby collection ID
+            image_type: 'Primary' for poster, 'Backdrop' for fanart
+            
+        Returns:
+            Dict with image info or None
+        """
+        try:
+            url = f"{self.server_url}/Items/{collection_id}/Images/{image_type}?api_key={self.api_key}"
+            response = self.session.get(url, timeout=10)
+            if response.status_code == 200 and response.content:
+                import base64
+                return {
+                    'has_image': True,
+                    'content_type': response.headers.get('Content-Type', 'image/jpeg'),
+                    'size': len(response.content),
+                    'base64': base64.b64encode(response.content).decode('utf-8')
+                }
+            return {'has_image': False}
+        except Exception as e:
+            logger.error(f"Error getting collection image: {e}")
+            return None
+
+    def delete_collection_image(self, collection_id: str, image_type: str = 'Primary') -> bool:
+        """
+        Delete/reset a collection image back to default.
+        
+        Args:
+            collection_id: The Emby collection ID
+            image_type: 'Primary' for poster, 'Backdrop' for fanart
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            url = f"{self.server_url}/Items/{collection_id}/Images/{image_type}?api_key={self.api_key}"
+            response = self.session.delete(url, timeout=15)
+            if response.status_code in [200, 204]:
+                logger.info(f"Deleted {image_type} image for collection {collection_id}")
+                return True
+            else:
+                logger.error(f"Failed to delete image (status: {response.status_code}) - {response.text}")
+                return False
+        except Exception as e:
+            logger.error(f"Error deleting collection image: {e}")
+            return False
+
+    def upload_collection_image_from_data(self, collection_id: str, image_data: bytes, 
+                                           image_type: str = 'Primary', content_type: str = 'image/jpeg') -> bool:
+        """
+        Upload an image to a collection from raw bytes.
+        
+        Args:
+            collection_id: The Emby collection ID
+            image_data: Raw image bytes
+            image_type: 'Primary' for poster, 'Backdrop' for fanart
+            content_type: MIME type of the image
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            import base64
+            image_data_base64 = base64.b64encode(image_data).decode('utf-8')
+            url = f"{self.server_url}/Items/{collection_id}/Images/{image_type}?api_key={self.api_key}"
+            response = self.session.post(url, data=image_data_base64,
+                                         headers={'Content-Type': content_type}, timeout=15)
+            if response.status_code in [200, 204]:
+                logger.info(f"Uploaded {image_type} image for collection {collection_id}")
+                return True
+            else:
+                logger.error(f"Failed to upload image (status: {response.status_code}) - {response.text}")
+                return False
+        except Exception as e:
+            logger.error(f"Error uploading collection image: {e}")
+            return False
+
+    def get_all_collections(self) -> List[Dict[str, Any]]:
+        """
+        Get all collections from Emby.
+        
+        Returns:
+            List of collection dicts with Id, Name, etc.
+        """
+        try:
+            endpoint = f"/Users/{self.user_id}/Items?api_key={self.api_key}&IncludeItemTypes=BoxSet&Recursive=true"
+            data = self._make_api_request('GET', endpoint)
+            if data and 'Items' in data:
+                return data['Items']
+            return []
+        except Exception as e:
+            logger.error(f"Error getting all collections: {e}")
+            return []

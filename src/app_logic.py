@@ -5,6 +5,7 @@ import random
 from src.tmdb_client import TmdbClient
 from src.trakt_client import TraktClient
 from src.trakt_list_processor import TraktListProcessor
+from src.list_metadata import ListMetadataManager
 from src.mdblist_client import MDBListClient
 from src.mdblist_processor import MDBListProcessor
 from src.emby_client import EmbyClient
@@ -138,16 +139,36 @@ def main():
                     logger.info(f"Processing Trakt collection: {collection_name}")
                     
                     if emby:
-                        collection_id = _sync_collection(emby, collection_name, tmdb_ids, config.get('emby', {}).get('library_ids'))
+                        # Apply per-collection metadata from list_metadata.json (for .txt files)
+                        file_name = collection_info.get('file_path', '').split('/')[-1]
+                        try:
+                            metadata_mgr = ListMetadataManager(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                            meta = metadata_mgr.get_list_config('traktlists', file_name)
+                            if meta:
+                                if 'library_ids' in meta and not collection_info.get('library_ids'):
+                                    collection_info['library_ids'] = meta['library_ids']
+                                if 'collection_name' in meta and meta['collection_name']:
+                                    collection_name = meta['collection_name']
+                                    collection_info['name'] = collection_name
+                                if 'poster_url' in meta and not collection_info.get('poster_url'):
+                                    collection_info['poster_url'] = meta['poster_url']
+                                if 'backdrop_url' in meta and not collection_info.get('backdrop_url'):
+                                    collection_info['backdrop_url'] = meta['backdrop_url']
+                        except Exception as e:
+                            logger.warning(f"Could not load metadata for {file_name}: {e}")
+                        
+                        # Use per-collection library_ids if set, otherwise global config
+                        collection_library_ids = collection_info.get('library_ids') or config.get('emby', {}).get('library_ids')
+                        collection_id = _sync_collection(emby, collection_name, tmdb_ids, collection_library_ids)
                         
                         if collection_id:
                             # Use custom poster generation for Trakt collections
-                            # Pass category_id to enable proper template selection
-                            category_id = collection_info.get('category_id', 12)  # Default to Trakt category
-                            backdrop_url = None
+                            category_id = collection_info.get('category_id', 12)
+                            backdrop_url = collection_info.get('backdrop_url')  # Custom backdrop from YAML
+                            poster_url = collection_info.get('poster_url')  # Custom poster from YAML
                             
-                            # Get backdrop from a random movie in the collection
-                            if tmdb_ids:
+                            # Get backdrop from a random movie if not set in YAML
+                            if not backdrop_url and tmdb_ids:
                                 try:
                                     representative_movie_id = random.choice(tmdb_ids)
                                     movie_details = tmdb.get_movie_details(representative_movie_id)
@@ -157,9 +178,8 @@ def main():
                                 except Exception as e:
                                     logger.warning(f"Could not fetch backdrop for Trakt collection '{collection_name}': {e}")
                             
-                            # EmbyClient will handle poster generation using category_id and trakt.png template
-                            logger.info(f"Applying custom poster to Trakt collection '{collection_name}' (category_id: {category_id})")
-                            if emby.update_collection_artwork(collection_id, None, backdrop_url, category_id=category_id):
+                            logger.info(f"Applying artwork to Trakt collection '{collection_name}' (category_id: {category_id})")
+                            if emby.update_collection_artwork(collection_id, poster_url, backdrop_url, category_id=category_id):
                                 logger.info(f"Successfully updated artwork for Trakt collection '{collection_name}'")
                             else:
                                 logger.warning(f"Failed to update artwork for Trakt collection '{collection_name}'")
@@ -192,16 +212,34 @@ def main():
                     logger.info(f"Processing MDBList collection: {collection_name}")
                     
                     if emby:
-                        collection_id = _sync_collection(emby, collection_name, tmdb_ids, config.get('emby', {}).get('library_ids'))
+                        # Apply per-collection metadata from list_metadata.json
+                        file_name = collection_info.get('file_path', '').split('/')[-1]
+                        try:
+                            metadata_mgr = ListMetadataManager(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                            meta = metadata_mgr.get_list_config('mdblists', file_name)
+                            if meta:
+                                if 'library_ids' in meta and not collection_info.get('library_ids'):
+                                    collection_info['library_ids'] = meta['library_ids']
+                                if 'collection_name' in meta and meta['collection_name']:
+                                    collection_name = meta['collection_name']
+                                    collection_info['name'] = collection_name
+                                if 'poster_url' in meta and not collection_info.get('poster_url'):
+                                    collection_info['poster_url'] = meta['poster_url']
+                                if 'backdrop_url' in meta and not collection_info.get('backdrop_url'):
+                                    collection_info['backdrop_url'] = meta['backdrop_url']
+                        except Exception as e:
+                            logger.warning(f"Could not load metadata for {file_name}: {e}")
+                        
+                        # Use per-collection library_ids if set, otherwise global config
+                        collection_library_ids = collection_info.get('library_ids') or config.get('emby', {}).get('library_ids')
+                        collection_id = _sync_collection(emby, collection_name, tmdb_ids, collection_library_ids)
                         
                         if collection_id:
-                            # Use custom poster generation for MDBList collections
-                            # Pass category_id to enable proper template selection
-                            category_id = collection_info.get('category_id', 13)  # Default to MDBList category
-                            backdrop_url = None
+                            category_id = collection_info.get('category_id', 13)
+                            backdrop_url = collection_info.get('backdrop_url')
+                            poster_url = collection_info.get('poster_url')
                             
-                            # Get backdrop from a random movie in the collection
-                            if tmdb_ids:
+                            if not backdrop_url and tmdb_ids:
                                 try:
                                     representative_movie_id = random.choice(tmdb_ids)
                                     movie_details = tmdb.get_movie_details(representative_movie_id)
@@ -211,9 +249,8 @@ def main():
                                 except Exception as e:
                                     logger.warning(f"Could not fetch backdrop for MDBList collection '{collection_name}': {e}")
                             
-                            # EmbyClient will handle poster generation using category_id and mdblist.png template
-                            logger.info(f"Applying custom poster to MDBList collection '{collection_name}' (category_id: {category_id})")
-                            if emby.update_collection_artwork(collection_id, None, backdrop_url, category_id=category_id):
+                            logger.info(f"Applying artwork to MDBList collection '{collection_name}' (category_id: {category_id})")
+                            if emby.update_collection_artwork(collection_id, poster_url, backdrop_url, category_id=category_id):
                                 logger.info(f"Successfully updated artwork for MDBList collection '{collection_name}'")
                             else:
                                 logger.warning(f"Failed to update artwork for MDBList collection '{collection_name}'")

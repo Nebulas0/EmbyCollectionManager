@@ -8,7 +8,8 @@ and converts them into collections with TMDb movie IDs.
 import os
 import re
 import logging
-from typing import List, Dict, Any, Set
+import yaml
+from typing import List, Dict, Any, Set, Optional
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -66,36 +67,57 @@ class MDBListProcessor:
         logger.info(f"Scanning MDBList directory: {mdblists_dir}")
         collections = []
         
-        # Find all .txt files in the directory
-        txt_files = list(mdblists_dir.glob("*.txt"))
+        # Find all .txt and .yaml/.yml files in the directory
+        list_files = list(mdblists_dir.glob("*.txt")) + list(mdblists_dir.glob("*.yaml")) + list(mdblists_dir.glob("*.yml"))
         
-        if not txt_files:
-            logger.info("No .txt files found in mdblists directory")
+        if not list_files:
+            logger.info("No list files found in mdblists directory")
             return []
             
-        logger.info(f"Found {len(txt_files)} MDBList files to process")
+        logger.info(f"Found {len(list_files)} MDBList files to process")
         
-        for txt_file in txt_files:
+        for list_file in list_files:
             try:
-                collection = self.process_mdblist_file(txt_file)
+                collection = self.process_mdblist_file(list_file)
                 if collection:
                     collections.append(collection)
             except Exception as e:
-                logger.error(f"Error processing file '{txt_file.name}': {e}")
+                logger.error(f"Error processing file '{list_file.name}': {e}")
                 
         return collections
     
     def process_mdblist_file(self, file_path: Path) -> Dict[str, Any]:
         """
         Process a single mdblist file and extract movie IDs.
+        Supports .txt (one item per line) and .yaml/.yml (structured) formats.
+        
+        YAML format supports:
+          - collection_name: "Custom Name"  # overrides filename
+          - library_ids: ["lib1", "lib2"]   # per-collection library selection
+          - category_id: 13                  # custom category for poster template
+          - poster_url: "https://..."        # custom poster URL
+          - backdrop_url: "https://..."      # custom backdrop URL
+          - items:                           # list of MDBList URLs, TMDb IDs, or titles
+              - https://mdblist.com/lists/...
+              - https://mdblist.com/lists/...
+              - 12345
+              - "Movie Title"
         
         Args:
-            file_path: Path to the .txt file
+            file_path: Path to the .txt or .yaml file
             
         Returns:
             Dictionary containing collection info and TMDb IDs
         """
         collection_name = file_path.stem  # Filename without extension
+        custom_name = None
+        library_ids = None
+        category_id = 13  # Default MDBList category
+        poster_url = None
+        backdrop_url = None
+        
+        is_yaml = file_path.suffix in ('.yaml', '.yml')
+        
         logger.info(f"Processing MDBList file: {file_path.name} -> Collection: '{collection_name}'")
         
         try:
@@ -104,7 +126,47 @@ class MDBListProcessor:
         except Exception as e:
             logger.error(f"Failed to read file '{file_path}': {e}")
             return None
-            
+        
+        if is_yaml:
+            try:
+                yaml_data = yaml.safe_load(content)
+                if isinstance(yaml_data, dict):
+                    custom_name = yaml_data.get('collection_name')
+                    library_ids = yaml_data.get('library_ids')
+                    cat = yaml_data.get('category_id')
+                    if cat is not None:
+                        category_id = cat
+                    poster_url = yaml_data.get('poster_url')
+                    backdrop_url = yaml_data.get('backdrop_url')
+                    items = yaml_data.get('items', [])
+                    # Convert items to text format for processing
+                    content = '\n'.join(str(i) for i in items) if items else ''
+                elif isinstance(yaml_data, list):
+                    content = '\n'.join(str(i) for i in yaml_data)
+            except yaml.YAMLError as e:
+                logger.warning(f"Failed to parse YAML in '{file_path.name}', treating as text: {e}")
+        elif content.strip().startswith('---'):
+            # YAML frontmatter in a .txt file
+            try:
+                if '\n---\n' in content:
+                    frontmatter, content = content.split('\n---\n', 1)
+                    frontmatter = frontmatter.strip().lstrip('-').strip()
+                    yaml_data = yaml.safe_load(frontmatter)
+                    if isinstance(yaml_data, dict):
+                        custom_name = yaml_data.get('collection_name')
+                        library_ids = yaml_data.get('library_ids')
+                        cat = yaml_data.get('category_id')
+                        if cat is not None:
+                            category_id = cat
+                        poster_url = yaml_data.get('poster_url')
+                        backdrop_url = yaml_data.get('backdrop_url')
+            except yaml.YAMLError:
+                pass
+        
+        if custom_name:
+            collection_name = custom_name
+            logger.info(f"Using custom collection name: '{collection_name}'")
+        
         tmdb_ids = self.extract_tmdb_ids_from_content(content, collection_name)
         
         if not tmdb_ids:
@@ -123,8 +185,11 @@ class MDBListProcessor:
             'source_type': 'mdblist_file',
             'tmdb_ids': tmdb_ids,
             'target_servers': ['emby'],
-            'category_id': 13,  # MDBList category
-            'file_path': str(file_path)
+            'category_id': category_id,
+            'file_path': str(file_path),
+            'library_ids': library_ids,
+            'poster_url': poster_url,
+            'backdrop_url': backdrop_url
         }
     
     def extract_tmdb_ids_from_content(self, content: str, collection_name: str) -> List[int]:
