@@ -297,6 +297,17 @@ def main():
             tmdb_discover_params = recipe.get('tmdb_discover_params')
             item_limit = recipe.get('item_limit', 50)  # Default to 50 items
             
+            # Apply override: custom item_limit
+            recipe_override_cfg = recipe_overrides.get(collection_name, {})
+            if 'item_limit' in recipe_override_cfg and recipe_override_cfg['item_limit']:
+                item_limit = recipe_override_cfg['item_limit']
+                logger.info(f"Using custom item_limit {item_limit} for '{collection_name}'")
+            
+            # Apply override: custom collection name
+            if 'custom_name' in recipe_override_cfg and recipe_override_cfg['custom_name']:
+                collection_name = recipe_override_cfg['custom_name']
+                logger.info(f"Using custom collection name: '{collection_name}'")
+            
             if not collection_name:
                 logger.warning(f"Skipping recipe without a name: {recipe}")
                 continue

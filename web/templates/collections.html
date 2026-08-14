@@ -51,6 +51,16 @@
         </div>
         <div id="detail-edit" style="display:none;margin-top:15px;border-top:1px solid var(--border);padding-top:15px">
             <h3 style="margin-bottom:10px">Override Settings</h3>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Custom Collection Name (optional - overrides recipe name in Emby)</label>
+                    <input type="text" id="detail-custom-name" placeholder="e.g. Popular Movies - 4K Edition">
+                </div>
+                <div class="form-group">
+                    <label>Item Limit (0 = no limit, overrides recipe default)</label>
+                    <input type="number" id="detail-item-limit" placeholder="40" min="0">
+                </div>
+            </div>
             <div class="form-group">
                 <label>Target Libraries (empty = use global setting)</label>
                 <div id="detail-libraries" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:10px"></div>
@@ -211,6 +221,8 @@ async function showDetail(name) {
         // Show edit section
         document.getElementById('detail-edit').style.display = 'block';
         libCheckboxes('detail-libraries', ov.library_ids || []);
+        document.getElementById('detail-custom-name').value = ov.custom_name || '';
+        document.getElementById('detail-item-limit').value = ov.item_limit || '';
         document.getElementById('detail-mdblist-urls').value = (ov.extra_mdblist_urls || []).join('\n');
         document.getElementById('detail-trakt-urls').value = (ov.extra_trakt_urls || []).join('\n');
         document.getElementById('detail-tmdb-ids').value = (ov.extra_tmdb_ids || []).join(', ');
@@ -228,7 +240,10 @@ function closeDetail() {
 
 async function saveOverride() {
     if (!currentRecipeName) return;
+    const itemLimitVal = document.getElementById('detail-item-limit').value.trim();
     const override = {
+        custom_name: document.getElementById('detail-custom-name').value.trim() || null,
+        item_limit: itemLimitVal ? parseInt(itemLimitVal) : null,
         library_ids: getCheckedLibs('detail-libraries'),
         extra_mdblist_urls: document.getElementById('detail-mdblist-urls').value.split('\n').map(s=>s.trim()).filter(s=>s),
         extra_trakt_urls: document.getElementById('detail-trakt-urls').value.split('\n').map(s=>s.trim()).filter(s=>s),
