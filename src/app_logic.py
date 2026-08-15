@@ -120,6 +120,18 @@ def main():
         logger.error("No media server available for sync. Check your configuration and target selection.")
         sys.exit(1)
 
+    # Compute active recipes for filtering (may be patched by web UI)
+    import sys as _sys
+    _self_module = _sys.modules.get(__name__)
+    active_recipes = RECIPES
+    if _self_module and hasattr(_self_module, 'RECIPES'):
+        active_recipes = _self_module.RECIPES
+    _enabled_names = None
+    # Check if RECIPES was patched (filtered) by comparing against the original
+    from src.collection_recipes import RECIPES as _original_recipes
+    if len(active_recipes) != len(_original_recipes) or any(r.get('name') != o.get('name') for r, o in zip(active_recipes, _original_recipes)):
+        _enabled_names = set(r.get('name', '') for r in active_recipes)
+
     # Process Trakt lists from traktlists directory FIRST for testing
     try:
         trakt_processor = TraktListProcessor(tmdb, trakt, config)
@@ -137,6 +149,9 @@ def main():
                         logger.warning(f"No movies found for Trakt collection '{collection_name}', skipping")
                         continue
                     
+                    if _enabled_names is not None and collection_name not in _enabled_names:
+                        logger.info(f"Skipping Trakt collection '{collection_name}' (not in enabled recipes)")
+                        continue
                     logger.info(f"Processing Trakt collection: {collection_name}")
                     
                     if emby:
@@ -210,6 +225,9 @@ def main():
                         logger.warning(f"No movies found for MDBList collection '{collection_name}', skipping")
                         continue
                     
+                    if _enabled_names is not None and collection_name not in _enabled_names:
+                        logger.info(f"Skipping MDBList collection '{collection_name}' (not in enabled recipes)")
+                        continue
                     logger.info(f"Processing MDBList collection: {collection_name}")
                     
                     if emby:
@@ -270,11 +288,12 @@ def main():
     recipe_duplicates = override_mgr.get_duplicates()
     
     # Build the effective recipe list: original recipes + duplicates
-    effective_recipes = list(RECIPES)
+    # active_recipes was computed earlier (may be patched by web UI for filtering)
+    effective_recipes = list(active_recipes)
     for dup in recipe_duplicates:
         # Find the original recipe
         orig_name = dup.get('original_name', '')
-        orig_recipe = next((r for r in RECIPES if r.get('name') == orig_name), None)
+        orig_recipe = next((r for r in active_recipes if r.get('name') == orig_name), None)
         if orig_recipe:
             # Create a copy with the new name
             dup_recipe = dict(orig_recipe)
