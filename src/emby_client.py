@@ -891,7 +891,7 @@ class EmbyClient(MediaServerClient):
             List of collection dicts with Id, Name, etc.
         """
         try:
-            endpoint = f"/Users/{self.user_id}/Items?api_key={self.api_key}&IncludeItemTypes=BoxSet&Recursive=true"
+            endpoint = f"/Users/{self.user_id}/Items?api_key={self.api_key}&IncludeItemTypes=BoxSet&Recursive=true&Fields=ChildCount,PrimaryImageAspectRatio,ImageTags"
             data = self._make_api_request('GET', endpoint)
             if data and 'Items' in data:
                 return data['Items']

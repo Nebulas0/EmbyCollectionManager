@@ -14,7 +14,7 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file
+from flask import Flask, render_template, request, jsonify, redirect, url_for, Response, send_file
 
 # Add parent directory to path so we can import src modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -1100,6 +1100,28 @@ def delete_duplicate():
 
 # === Artwork Management ===
 
+@app.route('/api/collection_image_proxy/<collection_id>')
+def collection_image_proxy(collection_id):
+    """Proxy collection images through Flask so the browser can access them
+    regardless of the internal Emby server URL."""
+    config = load_config()
+    emby_cfg = config.get('emby', {})
+    if not emby_cfg.get('server_url') or not emby_cfg.get('api_key'):
+        return jsonify({'error': 'Emby not configured'}), 400
+    image_type = request.args.get('type', 'Primary')
+    try:
+        import requests as _requests
+        url = f"{emby_cfg['server_url'].rstrip('/')}/Items/{collection_id}/Images/{image_type}?api_key={emby_cfg['api_key']}"
+        resp = _requests.get(url, timeout=15)
+        if resp.status_code == 200 and resp.content:
+            return Response(resp.content, content_type=resp.headers.get('Content-Type', 'image/jpeg'))
+        else:
+            return Response(b'', status=404, content_type='image/jpeg')
+    except Exception as e:
+        logger.error(f"Image proxy error: {e}")
+        return Response(b'', status=500, content_type='image/jpeg')
+
+
 @app.route('/artwork')
 def artwork():
     """Show all Emby collections with artwork management."""
@@ -1116,13 +1138,12 @@ def artwork():
             config=config
         )
         collections = emby.get_all_collections()
-        # Build image URLs for each collection
-        base_url = emby_cfg['server_url'].rstrip('/')
-        api_key = emby_cfg['api_key']
+        # Build image URLs that proxy through Flask (so the browser can access them
+        # regardless of the internal Emby server URL)
         for col in collections:
             col_id = col.get('Id', '')
-            col['poster_url'] = f"{base_url}/Items/{col_id}/Images/Primary?api_key={api_key}"
-            col['backdrop_url'] = f"{base_url}/Items/{col_id}/Images/Backdrop?api_key={api_key}"
+            col['poster_url'] = f"/api/collection_image_proxy/{col_id}?type=Primary"
+            col['backdrop_url'] = f"/api/collection_image_proxy/{col_id}?type=Backdrop"
         return render_template('artwork.html', collections=collections, error=None)
     except Exception as e:
         return render_template('artwork.html', collections=[], error=str(e))
