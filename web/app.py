@@ -336,6 +336,8 @@ def test_emby():
         from src.emby_client import EmbyClient
         emby = EmbyClient(server_url=data.get('server_url', ''), api_key=data.get('api_key', ''), user_id=data.get('user_id', ''), config={})
         libs = emby.get_libraries()
+        if not libs:
+            return jsonify({'success': False, 'error': 'No libraries returned. Check API key and server URL.'}), 200
         return jsonify({'success': True, 'libraries': libs, 'count': len(libs)})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -348,6 +350,8 @@ def test_tmdb():
         from src.tmdb_client import TmdbClient
         tmdb = TmdbClient(api_key=data.get('api_key', ''))
         movies = tmdb.discover_movies({'sort_by': 'popularity.desc'}, page_limit=1)
+        if not movies:
+            return jsonify({'success': False, 'error': 'TMDb returned 0 movies. Check API key (needs v3 key, not v4 JWT token).'}), 200
         return jsonify({'success': True, 'movie_count': len(movies), 'sample': movies[0]['title'] if movies else None})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500

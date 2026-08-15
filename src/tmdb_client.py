@@ -9,6 +9,17 @@ class TmdbClient:
         self.api_key = api_key
         self.logger = logging.getLogger("TmdbClient")
         self.session = requests.Session()
+        # Detect v4 JWT read access token (starts with "eyJ") and use Bearer auth
+        self.is_v4_token = api_key and api_key.startswith("eyJ")
+        if self.is_v4_token:
+            self.session.headers.update({"Authorization": f"Bearer {api_key}"})
+
+    def _get_params(self, extra_params=None):
+        """Build request params, using api_key query param only for v3 keys."""
+        params = dict(extra_params) if extra_params else {}
+        if not self.is_v4_token:
+            params["api_key"] = self.api_key
+        return params
 
     def discover_movies(self, params, page_limit=1):
         """
@@ -31,7 +42,7 @@ class TmdbClient:
                 
             req_params = dict(params)
             req_params["page"] = current_page
-            req_params["api_key"] = self.api_key # Add API key per-request
+            req_params = self._get_params(req_params)
             
             try:
                 resp = self.session.get(url, params=req_params, timeout=10)
@@ -75,7 +86,7 @@ class TmdbClient:
         url = f"{self.BASE_URL}/collection/{collection_id}"
         try:
             # Add API key per-request
-            resp = self.session.get(url, params={"api_key": self.api_key}, timeout=10)
+            resp = self.session.get(url, params=self._get_params(), timeout=10)
             resp.raise_for_status()
             return resp.json()
         except requests.RequestException as e:
@@ -97,7 +108,7 @@ class TmdbClient:
         try:
             # For collections, language should be set to 'en' or null to get all images
             # The 'en-US' sometimes doesn't work for collections
-            resp = self.session.get(url, params={"api_key": self.api_key, "language": "en"}, timeout=10)
+            resp = self.session.get(url, params=self._get_params({"language": "en"}), timeout=10)
             resp.raise_for_status()
             self.logger.info(f"Successfully fetched images for TMDb collection {collection_id}")
             return resp.json()
@@ -112,7 +123,7 @@ class TmdbClient:
         url = f"{self.BASE_URL}/movie/{movie_id}"
         try:
             # Add API key per-request
-            resp = self.session.get(url, params={"api_key": self.api_key}, timeout=10)
+            resp = self.session.get(url, params=self._get_params(), timeout=10)
             resp.raise_for_status()
             return resp.json()
         except requests.RequestException as e:
@@ -223,12 +234,11 @@ class TmdbClient:
             if page_limit is not None and current_page > page_limit:
                 break
                 
-            params = {
-                "api_key": self.api_key,
+            params = self._get_params({
                 "query": query,
                 "page": current_page,
                 "include_adult": False  # Filter out adult content
-            }
+            })
             
             try:
                 resp = self.session.get(url, params=params, timeout=10)
