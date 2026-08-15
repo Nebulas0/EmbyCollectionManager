@@ -1,19 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Logs - Emby Collection Manager{% endblock %}
 {% block content %}
-<h1 style="margin-bottom:20px">Sync Logs</h1>
+<h1>Sync Logs</h1>
 <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px">
-        <div>
+    <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
             <button class="btn btn-secondary btn-sm" onclick="refreshLogs()">Refresh</button>
-            <label class="btn btn-secondary btn-sm" style="cursor:pointer">Auto-refresh<input type="checkbox" id="auto-refresh" onchange="toggleAutoRefresh()" style="margin-left:5px"></label>
-            <span id="log-count" style="color:var(--text-dim);margin-left:10px;font-size:0.85rem"></span>
+            <label class="checkbox-label"><input type="checkbox" id="auto-refresh" onchange="toggleAutoRefresh()"> Auto-refresh</label>
+            <span id="log-count" class="text-dim text-xs"></span>
         </div>
-        <div>
-            <button class="btn btn-secondary btn-sm" onclick="downloadLogs()">Download</button>
-        </div>
+        <button class="btn btn-secondary btn-sm" onclick="downloadLogs()">Download</button>
     </div>
-    <pre id="log-content" style="background:var(--bg);padding:15px;border-radius:4px;font-size:0.8rem;max-height:600px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;font-family:'Courier New',monospace;color:var(--text-dim)">Loading...</pre>
+    <pre id="log-content" style="max-height:600px;overflow-y:auto;white-space:pre-wrap;word-break:break-all">Loading...</pre>
 </div>
 {% endblock %}
 {% block scripts %}
