@@ -46,12 +46,15 @@ CONFIG_PATH = os.path.join(BASE_DIR, 'config', 'config.yaml')
 STATE_PATH = os.path.join(BASE_DIR, 'config', 'webui_state.json')
 
 # Sync state tracking
+sync_lock = threading.Lock()
+sync_cancel = threading.Event()
 sync_state = {
     'running': False,
     'last_run': None,
     'last_status': None,
     'last_error': None,
-    'thread': None
+    'thread': None,
+    'progress': None,  # {'current': 'Collection Name', 'index': 1, 'total': 5}
 }
 
 
@@ -134,14 +137,21 @@ def get_emby_libraries():
 
 
 def run_sync_background():
-    global sync_state
-    sync_state['running'] = True
+    with sync_lock:
+        if sync_state['running']:
+            return
+        sync_state['running'] = True
+    sync_cancel.clear()
     sync_state['last_error'] = None
     sync_state['last_status'] = 'running'
     sync_state['last_run'] = datetime.now().isoformat()
+    sync_state['progress'] = None
     try:
         from src.app_logic import main as app_main
         import src.app_logic as app_logic_module
+        # Pass the cancel event and progress callback to app_logic
+        app_logic_module._cancel_event = sync_cancel
+        app_logic_module._progress_callback = _update_progress
         state = load_state()
         enabled = state.get('enabled_recipes', None)
         original_recipes = app_logic_module.RECIPES
@@ -157,16 +167,32 @@ def run_sync_background():
             sys.argv = old_argv
             app_logic_module.RECIPES = original_recipes
             app_logic_module._single_recipe_mode = None
-        sync_state['last_status'] = 'success'
+            app_logic_module._cancel_event = None
+            app_logic_module._progress_callback = None
+        if sync_cancel.is_set():
+            sync_state['last_status'] = 'cancelled'
+        else:
+            sync_state['last_status'] = 'success'
     except Exception as e:
         sync_state['last_status'] = 'error'
         sync_state['last_error'] = str(e)
         logger.error(f"Sync error: {e}")
     finally:
-        sync_state['running'] = False
+        with sync_lock:
+            sync_state['running'] = False
+            sync_state['progress'] = None
+
+def _update_progress(current, index, total):
+    """Update sync progress state (called from app_logic)."""
+    sync_state['progress'] = {'current': current, 'index': index, 'total': total}
 
 
 # === Routes ===
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint for Docker/Saltbox."""
+    return jsonify({'status': 'ok', 'running': sync_state['running']})
 
 @app.route('/')
 def index():
@@ -370,26 +396,33 @@ def sync_single_list():
     name = data.get('name')
     if not name:
         return jsonify({'error': 'No name'}), 400
-    if sync_state['running']:
-        return jsonify({'error': 'A sync is already running'}), 409
+    with sync_lock:
+        if sync_state['running']:
+            return jsonify({'error': 'A sync is already running'}), 409
+        sync_state['running'] = True
+    sync_cancel.clear()
 
     def run_single():
-        global sync_state
-        sync_state['running'] = True
         sync_state['last_error'] = None
         sync_state['last_status'] = 'running'
         sync_state['last_run'] = datetime.now().isoformat()
+        sync_state['progress'] = None
         try:
             if _sync_function:
                 _sync_function(single_recipe=name)
             else:
                 run_sync_background()
-            sync_state['last_status'] = 'success'
+            if sync_cancel.is_set():
+                sync_state['last_status'] = 'cancelled'
+            else:
+                sync_state['last_status'] = 'success'
         except Exception as e:
             sync_state['last_status'] = 'error'
             sync_state['last_error'] = str(e)
         finally:
-            sync_state['running'] = False
+            with sync_lock:
+                sync_state['running'] = False
+                sync_state['progress'] = None
 
     thread = threading.Thread(target=run_single, daemon=True)
     thread.start()
@@ -694,13 +727,23 @@ def trigger_sync():
     return jsonify({'success': True, 'message': 'Sync started'})
 
 
+@app.route('/api/sync_cancel', methods=['POST'])
+def cancel_sync():
+    """Cancel a running sync."""
+    if not sync_state['running']:
+        return jsonify({'error': 'No sync running'}), 400
+    sync_cancel.set()
+    logger.info("Sync cancellation requested")
+    return jsonify({'success': True, 'message': 'Cancellation requested'})
+
 @app.route('/api/sync_status')
 def sync_status():
     return jsonify({
         'running': sync_state['running'],
         'last_run': sync_state['last_run'],
         'last_status': sync_state['last_status'],
-        'last_error': sync_state['last_error']
+        'last_error': sync_state['last_error'],
+        'progress': sync_state.get('progress'),
     })
 
 
@@ -820,7 +863,37 @@ def delete_traktlist():
     p = os.path.join(BASE_DIR, d)
     fp = os.path.join(p, fn)
     if os.path.exists(fp):
+        # Derive collection name before deleting
+        col_name = os.path.splitext(fn)[0]
+        try:
+            import yaml as _yaml
+            with open(fp, 'r', encoding='utf-8') as fh:
+                parsed = _yaml.safe_load(fh.read())
+            if isinstance(parsed, dict) and parsed.get('collection_name'):
+                col_name = parsed['collection_name']
+        except Exception:
+            pass
         os.remove(fp)
+        # Clean up enabled state
+        state = load_state()
+        cur = set(state.get('enabled_recipes', []))
+        cur.discard(col_name)
+        state['enabled_recipes'] = list(cur)
+        save_state(state)
+        # Clean up override
+        try:
+            from src.recipe_override import RecipeOverrideManager
+            mgr = RecipeOverrideManager(BASE_DIR)
+            mgr.delete_override(col_name)
+        except Exception:
+            pass
+        # Clean up list metadata
+        try:
+            from src.list_metadata import ListMetadataManager
+            meta_mgr = ListMetadataManager(BASE_DIR)
+            meta_mgr.delete_list_config('traktlists', fn)
+        except Exception:
+            pass
         return jsonify({'success': True})
     return jsonify({'error': 'File not found'}), 404
 
@@ -877,7 +950,37 @@ def delete_mdblist():
     p = os.path.join(BASE_DIR, d)
     fp = os.path.join(p, fn)
     if os.path.exists(fp):
+        # Derive collection name before deleting
+        col_name = os.path.splitext(fn)[0]
+        try:
+            import yaml as _yaml
+            with open(fp, 'r', encoding='utf-8') as fh:
+                parsed = _yaml.safe_load(fh.read())
+            if isinstance(parsed, dict) and parsed.get('collection_name'):
+                col_name = parsed['collection_name']
+        except Exception:
+            pass
         os.remove(fp)
+        # Clean up enabled state
+        state = load_state()
+        cur = set(state.get('enabled_recipes', []))
+        cur.discard(col_name)
+        state['enabled_recipes'] = list(cur)
+        save_state(state)
+        # Clean up override
+        try:
+            from src.recipe_override import RecipeOverrideManager
+            mgr = RecipeOverrideManager(BASE_DIR)
+            mgr.delete_override(col_name)
+        except Exception:
+            pass
+        # Clean up list metadata
+        try:
+            from src.list_metadata import ListMetadataManager
+            meta_mgr = ListMetadataManager(BASE_DIR)
+            meta_mgr.delete_list_config('mdblists', fn)
+        except Exception:
+            pass
         return jsonify({'success': True})
     return jsonify({'error': 'File not found'}), 404
 

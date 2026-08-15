@@ -19,6 +19,25 @@ from typing import List, Dict, Any, Optional
 # Set by main.py's run_sync_once() to restrict sync to one collection.
 _single_recipe_mode = None
 
+# Module-level cancel event and progress callback (set by web UI)
+_cancel_event = None
+_progress_callback = None
+
+def _check_cancelled():
+    """Check if sync has been cancelled. Returns True if cancelled."""
+    if _cancel_event is not None and _cancel_event.is_set():
+        logger.info("Sync cancelled by user")
+        return True
+    return False
+
+def _report_progress(current, index, total):
+    """Report sync progress to the web UI."""
+    if _progress_callback is not None:
+        try:
+            _progress_callback(current, index, total)
+        except Exception:
+            pass
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -168,10 +187,13 @@ def main():
         if trakt_collections:
             logger.info(f"Processing {len(trakt_collections)} Trakt list collections")
             
-            for collection_info in trakt_collections:
+            for idx, collection_info in enumerate(trakt_collections, 1):
                 try:
+                    if _check_cancelled():
+                        break
                     collection_name = collection_info['name']
                     tmdb_ids = collection_info['tmdb_ids']
+                    _report_progress(collection_name, idx, len(trakt_collections))
                     
                     if not tmdb_ids:
                         logger.warning(f"No movies found for Trakt collection '{collection_name}', skipping")
@@ -291,10 +313,13 @@ def main():
         if mdblist_collections:
             logger.info(f"Processing {len(mdblist_collections)} MDBList collections")
             
-            for collection_info in mdblist_collections:
+            for idx, collection_info in enumerate(mdblist_collections, 1):
                 try:
+                    if _check_cancelled():
+                        break
                     collection_name = collection_info['name']
                     tmdb_ids = collection_info['tmdb_ids']
+                    _report_progress(collection_name, idx, len(mdblist_collections))
                     
                     if not tmdb_ids:
                         logger.warning(f"No movies found for MDBList collection '{collection_name}', skipping")
@@ -426,7 +451,10 @@ def main():
             logger.info(f"Added duplicate recipe: '{dup_recipe['name']}' based on '{orig_name}'")
     
     # Process standard TMDb collections from recipes (including duplicates)
-    for recipe in effective_recipes:
+    for idx, recipe in enumerate(effective_recipes, 1):
+        if _check_cancelled():
+            break
+        _report_progress(recipe.get('name', 'Unknown'), idx, len(effective_recipes))
         # Check if this recipe's targets include our active server
         targets = recipe.get('target_servers', ['emby'])
         
@@ -686,7 +714,9 @@ def main():
     # Remove disabled collections from Emby
     # If a collection was previously synced but is now disabled (not in _enabled_names),
     # remove it from Emby to keep things clean.
-    if emby and _enabled_names is not None and not _single_recipe_mode:
+    if _check_cancelled():
+        logger.info("Sync cancelled, skipping cleanup")
+    elif emby and _enabled_names is not None and not _single_recipe_mode:
         try:
             logger.info("Checking for disabled collections to remove from Emby...")
             # Get all collections from Emby

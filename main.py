@@ -102,6 +102,9 @@ def run_sync_once(config_path="config/config.yaml", single_recipe=None):
         import src.app_logic as app_logic
         from src.collection_recipes import RECIPES
         original_recipes = app_logic.RECIPES
+        # Clear cancel event for this sync run
+        if app_logic._cancel_event is not None:
+            app_logic._cancel_event.clear()
 
         if single_recipe:
             # Single recipe/list mode - sync only one collection
@@ -135,6 +138,8 @@ def run_sync_once(config_path="config/config.yaml", single_recipe=None):
             sys.argv = old_argv
             app_logic.RECIPES = original_recipes
             app_logic._single_recipe_mode = None
+            app_logic._cancel_event = None
+            app_logic._progress_callback = None
 
         duration = str(datetime.now() - start_time).split('.')[0]
         logger.info(f"Sync completed successfully in {duration}")
