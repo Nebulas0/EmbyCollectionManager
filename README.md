@@ -2,17 +2,17 @@
 
 Automatically generates and syncs movie collections in your Emby server using TMDb, Trakt, and MDBList. Includes a full web UI for managing everything without touching config files.
 
-Fork of [d3v1l1989/EmbyCollectionManager](https://github.com/d3v1l1989/EmbyCollectionManager) with added Web UI, per-collection library selection, artwork management, recipe overrides/duplicates, and Saltbox integration.
+Fork of [d3v1l1989/EmbyCollectionManager](https://github.com/d3v1l1989/EmbyCollectionManager) with added Web UI, per-collection library selection, artwork management, recipe overrides/duplicates, list-based collection management, and Saltbox integration.
 
 ## Features
 
 ### Web UI (port 8282)
 - **Dashboard** — sync control, next sync time, sync history, quick status
 - **Collections** — browse all 459 built-in recipes across 13 categories with live search/filter
+- **MDBLists** — manage MDBList-backed collections with enable/disable, per-collection sync, overrides, and create-from-URL
+- **Trakt Lists** — manage Trakt-backed collections with the same features as MDBLists
 - **Libraries** — select which Emby libraries to scan globally
 - **Settings** — all config options with API key masking, test buttons, notifications, export/import
-- **Trakt Lists** — create/edit/delete Trakt list files with per-collection library selection
-- **MDBLists** — create/edit/delete MDBList files with per-collection library selection
 - **Artwork** — preview, upload, reset, and delete collection artwork in Emby
 - **Logs** — live sync log viewer with auto-refresh and download
 
@@ -20,9 +20,32 @@ Fork of [d3v1l1989/EmbyCollectionManager](https://github.com/d3v1l1989/EmbyColle
 - 459 pre-configured collection recipes across 13 categories
 - Per-recipe overrides: custom name, item limit, target libraries, extra MDBList/Trakt URLs, extra TMDb IDs, custom artwork
 - Duplicate recipes (e.g. one "Popular Movies" for 1080p, one for 4K)
-- Single-recipe test sync from the UI
+- Single-recipe and single-list sync from the UI
 - Collection preview — see what TMDb IDs would be in a collection before syncing
-- Enable/disable individual recipes or entire categories
+- Enable/disable individual recipes, entire categories, or individual list collections
+- Disabled collections are automatically removed from Emby on the next full sync
+
+### List-Based Collections (MDBList & Trakt)
+The MDBLists and Trakt Lists pages provide the same collection-oriented controls as the Collections page:
+
+- **Enable/disable** each list collection individually
+- **Enable All / Disable All** buttons for bulk operations
+- **Per-collection Sync** — sync only one list collection without touching others
+- **Edit (Override Modal)** — full detail modal matching the Collections page:
+  - Custom collection name
+  - Item limit (0 = no limit)
+  - Target libraries (checkboxes)
+  - Extra MDBList URLs (one per line, merged into the collection)
+  - Extra Trakt URLs (one per line, merged into the collection)
+  - Extra TMDb IDs (comma-separated)
+  - Custom poster URL
+  - Custom backdrop URL
+  - Save / Remove override buttons
+- **Edit File** — edit the raw `.txt` or `.yaml` file content directly
+- **Libraries** — quick per-collection library selection
+- **Delete** — remove a list collection file
+- **Create from URL** — enter an MDBList or Trakt URL to automatically create a new collection (fetches the list name from the API)
+- **Cleanup Emby Collections** — remove collections from Emby that are not managed by Emby Collection Manager (dry-run first, then confirm)
 
 ### Per-Collection Library Selection
 - Each Trakt/MDBList file can target specific Emby libraries
@@ -56,8 +79,10 @@ items:
 
 ### Sync Features
 - Background scheduler with configurable interval
-- Manual sync from dashboard
-- Single-recipe sync for testing
+- Manual full sync from dashboard
+- Single-recipe sync for built-in recipes
+- Single-list sync for MDBList/Trakt collections
+- Disabled collections automatically removed from Emby during full sync
 - Sync history log (last 50 runs)
 - Live log viewer
 
@@ -130,7 +155,7 @@ All configuration is managed through the Web UI at `http://localhost:8282/settin
 
 ```yaml
 tmdb:
-  api_key: "YOUR_TMDB_API_KEY"
+  api_key: "YOUR_TMDB_API_KEY"  # v3 API key or v4 JWT read-access token
 
 emby:
   api_key: "YOUR_EMBY_API_KEY"
@@ -142,6 +167,7 @@ trakt:
   client_id: "YOUR_TRAKT_CLIENT_ID"
   client_secret: "YOUR_TRAKT_CLIENT_SECRET"
   username: "me"
+  access_token: ""  # Required for private lists
 
 traktlists:
   enabled: true
@@ -171,7 +197,7 @@ notifications:
 ```
 
 ### Getting API Keys
-- **TMDb**: [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api)
+- **TMDb**: [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) — supports both v3 API keys and v4 JWT read-access tokens (auto-detected)
 - **Emby**: Emby Dashboard → Advanced → Security
 - **Trakt**: [trakt.tv/oauth/applications](https://trakt.tv/oauth/applications) — Client ID (and Secret for private lists)
 - **MDBList**: [mdblist.com/preferences](https://mdblist.com/preferences)
@@ -211,11 +237,39 @@ items:
   - "Movie Title"
 ```
 
+### Create from URL
+From the MDBLists or Trakt Lists page:
+1. Click **+ Create from MDBList/Trakt URL**
+2. Paste the list URL (e.g. `https://mdblist.com/lists/username/list-name`)
+3. Optionally enter a custom collection name
+4. Optionally select target libraries
+5. Click **Create** — a YAML file is created automatically with the list name fetched from the API
+
+## Enable/Disable and Sync Behavior
+
+### Enable/Disable
+- **Built-in recipes**: Toggle on the Collections page
+- **MDBList/Trakt collections**: Toggle on the MDBLists or Trakt Lists page
+- **Enable All / Disable All**: Bulk toggle for list collections
+- The enabled state is stored in `config/webui_state.json`
+
+### Sync Behavior
+- **Full sync**: Syncs all enabled collections (built-in recipes + MDBList + Trakt). Disabled collections are skipped and **automatically removed from Emby**.
+- **Single-recipe sync**: Syncs only one built-in recipe. Does not remove any collections.
+- **Single-list sync**: Syncs only one MDBList/Trakt collection. Does not remove any collections.
+- Disabled collection removal only happens during full sync, never during single-recipe or single-list sync.
+
+### Cleanup Emby Collections
+The **Cleanup Emby Collections** button on the MDBLists and Trakt Lists pages:
+1. Runs a dry-run showing which Emby collections are not managed by Emby Collection Manager
+2. After confirmation, removes those collections from Emby
+3. Checks all managed names: built-in recipes, duplicates, MDBList files, Trakt files, and custom_name overrides
+
 ## Per-Collection Library Selection
 
 From the Web UI:
 1. Go to **Trakt Lists** or **MDBLists**
-2. Click **Libraries** on any list file
+2. Click **Libraries** on any list file, or use the **Edit** modal's library checkboxes
 3. Select which Emby libraries that collection should scan
 
 For built-in recipes:
@@ -231,7 +285,7 @@ This enables scenarios like:
 ## Recipe Overrides and Duplicates
 
 ### Overrides
-Click **Edit** on any recipe to override:
+Click **Edit** on any recipe (or MDBList/Trakt collection) to override:
 - Custom collection name
 - Item limit
 - Target libraries
@@ -254,6 +308,42 @@ Stored in `config/recipe_overrides.json`.
 - **Trakt/MDBList collections**: Custom branded poster templates
 - **Manual management**: Upload, reset, or delete artwork from the Artwork page
 
+## API Endpoints
+
+### Sync
+- `POST /api/sync` — start a full sync
+- `POST /api/sync_single` — sync a single built-in recipe
+- `POST /api/sync_single_list` — sync a single MDBList/Trakt collection
+- `GET /api/sync_status` — current sync status
+- `GET /api/sync_history` — sync history log
+
+### Toggle
+- `POST /api/toggle_recipe` — enable/disable a built-in recipe
+- `POST /api/toggle_all` — enable/disable all recipes
+- `POST /api/toggle_category` — enable/disable a category
+- `POST /api/toggle_list` — enable/disable an MDBList/Trakt collection
+- `POST /api/toggle_all_lists` — enable/disable all list collections of a type
+
+### List Management
+- `GET /api/list_detail/<name>?type=mdblists|traktlists` — get collection details + override
+- `POST /api/list_override` — save override for a list collection
+- `POST /api/list_override_delete` — remove override for a list collection
+- `POST /api/create_from_url` — create a list file from an MDBList/Trakt URL
+- `POST /api/cleanup_collections` — remove unmanaged collections from Emby (supports `dry_run`)
+
+### Recipe Management
+- `GET /api/recipe_detail/<name>` — get recipe details + override
+- `POST /api/recipe_override` — save recipe override
+- `POST /api/recipe_override_delete` — remove recipe override
+- `POST /api/recipe_duplicate` — create a duplicate recipe
+- `POST /api/recipe_duplicate_delete` — delete a duplicate
+
+### Other
+- `GET /api/list_libraries` — get Emby libraries
+- `GET/POST /api/list_config` — get/save per-list metadata
+- `GET/POST /api/notifications` — notification settings
+- `GET /api/recipe_preview` — preview TMDb IDs for a recipe
+
 ## Project Structure
 
 ```
@@ -272,7 +362,7 @@ EmbyCollectionManager/
 ├── src/
 │   ├── app_logic.py           # Main sync orchestration
 │   ├── emby_client.py         # Emby API client
-│   ├── tmdb_client.py         # TMDb API client
+│   ├── tmdb_client.py         # TMDb API client (v3 + v4 JWT)
 │   ├── trakt_client.py        # Trakt API client
 │   ├── mdblist_client.py      # MDBList API client
 │   ├── collection_recipes.py  # 459 built-in recipes
@@ -314,6 +404,9 @@ EmbyCollectionManager/
 4. **Web UI not accessible** — check port 8282 is exposed, or Traefik/Authelia config for Saltbox
 5. **Artwork not updating** — check `poster_settings.enable_custom_posters` in Settings
 6. **Preview shows 0 movies** — TMDb API key not configured or invalid
+7. **TMDb 401 errors** — if using a v4 JWT token, it's auto-detected and sent as Bearer auth; v3 keys use the `api_key` query parameter
+8. **Single-list sync does nothing** — ensure the collection name matches the file's `collection_name` (YAML) or filename stem (TXT)
+9. **Disabled collection still in Emby** — run a full sync (`/api/sync`); disabled collections are removed during full sync only
 
 View logs at `http://localhost:8282/logs` or with `docker logs embycollectionmanager`.
 
