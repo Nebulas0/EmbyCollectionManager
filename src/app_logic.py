@@ -144,6 +144,11 @@ def main():
         except Exception:
             pass
 
+    # Initialize recipe override manager (needed for MDBList/Trakt overrides too)
+    override_mgr = RecipeOverrideManager(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    recipe_overrides = override_mgr.get_all_overrides()
+    recipe_duplicates = override_mgr.get_duplicates()
+
     # Process Trakt lists from traktlists directory FIRST for testing
     try:
         trakt_processor = TraktListProcessor(tmdb, trakt, config)
@@ -166,6 +171,48 @@ def main():
                         continue
                     logger.info(f"Processing Trakt collection: {collection_name}")
                     
+                    # Apply overrides for this collection
+                    list_override = recipe_overrides.get(collection_name, {})
+                    if list_override:
+                        logger.info(f"Applying overrides for Trakt collection '{collection_name}'")
+                    if list_override.get('custom_name'):
+                        collection_name = list_override['custom_name']
+                        collection_info['name'] = collection_name
+                        logger.info(f"Using custom collection name: '{collection_name}'")
+                    if list_override.get('item_limit'):
+                        limit = list_override['item_limit']
+                        if len(tmdb_ids) > limit:
+                            tmdb_ids = tmdb_ids[:limit]
+                            logger.info(f"Limited to {limit} items for '{collection_name}'")
+                    extra_mdblist_urls = list_override.get('extra_mdblist_urls', [])
+                    extra_trakt_urls = list_override.get('extra_trakt_urls', [])
+                    extra_tmdb_ids = list_override.get('extra_tmdb_ids', [])
+                    if extra_mdblist_urls and mdblist:
+                        for url in extra_mdblist_urls:
+                            try:
+                                extra_items = mdblist.get_list_items(url)
+                                extra_ids = mdblist.extract_tmdb_ids(extra_items, 'movie')
+                                tmdb_ids.extend(extra_ids)
+                                logger.info(f"Added {len(extra_ids)} items from extra MDBList URL to '{collection_name}'")
+                            except Exception as e:
+                                logger.warning(f"Failed to fetch extra MDBList URL {url}: {e}")
+                    if extra_trakt_urls and trakt:
+                        for url in extra_trakt_urls:
+                            try:
+                                import re as _re
+                                m = _re.match(r'https://trakt\.tv/users/([^/]+)/lists/([^/?]+)', url)
+                                if m:
+                                    extra_items = trakt.get_list_items(m.group(1), m.group(2), 'movie')
+                                    extra_ids = trakt.extract_tmdb_ids(extra_items, 'movie')
+                                    tmdb_ids.extend(extra_ids)
+                                    logger.info(f"Added {len(extra_ids)} items from extra Trakt URL to '{collection_name}'")
+                            except Exception as e:
+                                logger.warning(f"Failed to fetch extra Trakt URL {url}: {e}")
+                    if extra_tmdb_ids:
+                        tmdb_ids.extend(extra_tmdb_ids)
+                        logger.info(f"Added {len(extra_tmdb_ids)} manual TMDb IDs to '{collection_name}'")
+                    tmdb_ids = list(dict.fromkeys(tmdb_ids))
+                    
                     if emby:
                         # Apply per-collection metadata from list_metadata.json (for .txt files)
                         file_name = collection_info.get('file_path', '').split('/')[-1]
@@ -175,7 +222,7 @@ def main():
                             if meta:
                                 if 'library_ids' in meta and not collection_info.get('library_ids'):
                                     collection_info['library_ids'] = meta['library_ids']
-                                if 'collection_name' in meta and meta['collection_name']:
+                                if 'collection_name' in meta and meta['collection_name'] and not list_override.get('custom_name'):
                                     collection_name = meta['collection_name']
                                     collection_info['name'] = collection_name
                                 if 'poster_url' in meta and not collection_info.get('poster_url'):
@@ -185,15 +232,20 @@ def main():
                         except Exception as e:
                             logger.warning(f"Could not load metadata for {file_name}: {e}")
                         
-                        # Use per-collection library_ids if set, otherwise global config
-                        collection_library_ids = collection_info.get('library_ids') or config.get('emby', {}).get('library_ids')
+                        # Use override library_ids, then per-collection, then global config
+                        collection_library_ids = list_override.get('library_ids') or collection_info.get('library_ids') or config.get('emby', {}).get('library_ids')
+                        poster_url = list_override.get('custom_poster_url') or collection_info.get('poster_url')
+                        backdrop_url = list_override.get('custom_backdrop_url') or collection_info.get('backdrop_url')
                         collection_id = _sync_collection(emby, collection_name, tmdb_ids, collection_library_ids)
                         
                         if collection_id:
                             # Use custom poster generation for Trakt collections
                             category_id = collection_info.get('category_id', 12)
-                            backdrop_url = collection_info.get('backdrop_url')  # Custom backdrop from YAML
-                            poster_url = collection_info.get('poster_url')  # Custom poster from YAML
+                            # poster_url and backdrop_url already set from overrides above
+                            if not poster_url:
+                                poster_url = collection_info.get('poster_url')
+                            if not backdrop_url:
+                                backdrop_url = collection_info.get('backdrop_url')
                             
                             # Get backdrop from a random movie if not set in YAML
                             if not backdrop_url and tmdb_ids:
@@ -242,6 +294,52 @@ def main():
                         continue
                     logger.info(f"Processing MDBList collection: {collection_name}")
                     
+                    # Apply overrides for this collection
+                    list_override = recipe_overrides.get(collection_name, {})
+                    if list_override:
+                        logger.info(f"Applying overrides for MDBList collection '{collection_name}'")
+                    # Apply custom name override
+                    if list_override.get('custom_name'):
+                        collection_name = list_override['custom_name']
+                        collection_info['name'] = collection_name
+                        logger.info(f"Using custom collection name: '{collection_name}'")
+                    # Apply item limit override
+                    if list_override.get('item_limit'):
+                        limit = list_override['item_limit']
+                        if len(tmdb_ids) > limit:
+                            tmdb_ids = tmdb_ids[:limit]
+                            logger.info(f"Limited to {limit} items for '{collection_name}'")
+                    # Merge extra items from override
+                    extra_mdblist_urls = list_override.get('extra_mdblist_urls', [])
+                    extra_trakt_urls = list_override.get('extra_trakt_urls', [])
+                    extra_tmdb_ids = list_override.get('extra_tmdb_ids', [])
+                    if extra_mdblist_urls and mdblist:
+                        for url in extra_mdblist_urls:
+                            try:
+                                extra_items = mdblist.get_list_items(url)
+                                extra_ids = mdblist.extract_tmdb_ids(extra_items, 'movie')
+                                tmdb_ids.extend(extra_ids)
+                                logger.info(f"Added {len(extra_ids)} items from extra MDBList URL to '{collection_name}'")
+                            except Exception as e:
+                                logger.warning(f"Failed to fetch extra MDBList URL {url}: {e}")
+                    if extra_trakt_urls and trakt:
+                        for url in extra_trakt_urls:
+                            try:
+                                import re as _re
+                                m = _re.match(r'https://trakt\.tv/users/([^/]+)/lists/([^/?]+)', url)
+                                if m:
+                                    extra_items = trakt.get_list_items(m.group(1), m.group(2), 'movie')
+                                    extra_ids = trakt.extract_tmdb_ids(extra_items, 'movie')
+                                    tmdb_ids.extend(extra_ids)
+                                    logger.info(f"Added {len(extra_ids)} items from extra Trakt URL to '{collection_name}'")
+                            except Exception as e:
+                                logger.warning(f"Failed to fetch extra Trakt URL {url}: {e}")
+                    if extra_tmdb_ids:
+                        tmdb_ids.extend(extra_tmdb_ids)
+                        logger.info(f"Added {len(extra_tmdb_ids)} manual TMDb IDs to '{collection_name}'")
+                    # De-duplicate tmdb_ids
+                    tmdb_ids = list(dict.fromkeys(tmdb_ids))
+                    
                     if emby:
                         # Apply per-collection metadata from list_metadata.json
                         file_name = collection_info.get('file_path', '').split('/')[-1]
@@ -251,7 +349,7 @@ def main():
                             if meta:
                                 if 'library_ids' in meta and not collection_info.get('library_ids'):
                                     collection_info['library_ids'] = meta['library_ids']
-                                if 'collection_name' in meta and meta['collection_name']:
+                                if 'collection_name' in meta and meta['collection_name'] and not list_override.get('custom_name'):
                                     collection_name = meta['collection_name']
                                     collection_info['name'] = collection_name
                                 if 'poster_url' in meta and not collection_info.get('poster_url'):
@@ -261,14 +359,20 @@ def main():
                         except Exception as e:
                             logger.warning(f"Could not load metadata for {file_name}: {e}")
                         
-                        # Use per-collection library_ids if set, otherwise global config
-                        collection_library_ids = collection_info.get('library_ids') or config.get('emby', {}).get('library_ids')
+                        # Use override library_ids, then per-collection, then global config
+                        collection_library_ids = list_override.get('library_ids') or collection_info.get('library_ids') or config.get('emby', {}).get('library_ids')
+                        # Apply custom artwork from override
+                        poster_url = list_override.get('custom_poster_url') or collection_info.get('poster_url')
+                        backdrop_url = list_override.get('custom_backdrop_url') or collection_info.get('backdrop_url')
                         collection_id = _sync_collection(emby, collection_name, tmdb_ids, collection_library_ids)
                         
                         if collection_id:
                             category_id = collection_info.get('category_id', 13)
-                            backdrop_url = collection_info.get('backdrop_url')
-                            poster_url = collection_info.get('poster_url')
+                            # poster_url and backdrop_url already set from overrides above
+                            if not poster_url:
+                                poster_url = collection_info.get('poster_url')
+                            if not backdrop_url:
+                                backdrop_url = collection_info.get('backdrop_url')
                             
                             if not backdrop_url and tmdb_ids:
                                 try:
@@ -294,11 +398,6 @@ def main():
     except Exception as e:
         logger.error(f"Error during MDBList processing: {e}")
 
-    # Initialize recipe override manager
-    override_mgr = RecipeOverrideManager(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    recipe_overrides = override_mgr.get_all_overrides()
-    recipe_duplicates = override_mgr.get_duplicates()
-    
     # Build the effective recipe list: original recipes + duplicates
     # active_recipes was computed earlier (may be patched by web UI for filtering)
     effective_recipes = list(active_recipes)

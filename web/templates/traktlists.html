@@ -5,8 +5,8 @@
 <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
         <p style="color:var(--text-dim);margin:0">
-            Trakt list files in <code>{{ directory }}/</code>. Supports .txt (one item per line) and .yaml format.
-            YAML format allows per-collection library selection, custom names, and multiple URLs per collection.
+            Trakt list files in <code>{{ directory }}/</code>. Supports .txt and .yaml format.
+            YAML allows multiple Trakt URLs per collection, per-collection library selection, and custom names.
             <br><span style="color:var(--green)">{{ enabled_count }}</span> of {{ files|length }} collections enabled.
         </p>
         <div style="display:flex;gap:8px">
@@ -27,13 +27,14 @@
     <ul class="recipe-list">
         {% for file in files %}
         <li class="recipe-item recipe-row" data-recipe-name="{{ file.collection_name|lower }}">
-            <div class="recipe-name" style="cursor:pointer" onclick="editFile('{{ file.name }}',{{ loop.index0 }})">
+            <div class="recipe-name" style="cursor:pointer" onclick="showDetail('{{ file.collection_name|replace("'","\\'") }}')">
                 {{ file.collection_name }}
                 <span class="recipe-cat">{{ file.name }}</span>
             </div>
             <div style="display:flex;gap:6px;align-items:center">
                 <button class="btn btn-secondary btn-sm" onclick="syncSingle('{{ file.collection_name|replace("'","\\'") }}')">Sync</button>
-                <button class="btn btn-secondary btn-sm" onclick="editFile('{{ file.name }}',{{ loop.index0 }})">Edit</button>
+                <button class="btn btn-secondary btn-sm" onclick="showDetail('{{ file.collection_name|replace("'","\\'") }}')">Edit</button>
+                <button class="btn btn-secondary btn-sm" onclick="editFile('{{ file.name }}',{{ loop.index0 }})">Edit File</button>
                 <button class="btn btn-secondary btn-sm" onclick="showLibSelect('{{ file.name }}')">Libraries</button>
                 <button class="btn btn-secondary btn-sm" onclick="deleteFile('{{ file.name }}')" style="color:var(--red)">Delete</button>
                 <label class="checkbox-label" style="display:flex;align-items:center;gap:4px;cursor:pointer">
@@ -50,16 +51,17 @@
 <div class="card"><p style="color:var(--text-dim)">No Trakt list files found. Create one to get started.</p></div>
 {% endif %}
 
+<!-- File editor modal (for editing raw file content) -->
 <div class="modal" id="file-modal">
     <div class="modal-content">
-        <h2 id="modal-title">New Trakt List</h2>
+        <h2 id="modal-title">New MDBList</h2>
         <div class="form-group">
             <label>Filename</label>
-            <input type="text" id="file-name" placeholder="My Collection.txt">
+            <input type="text" id="file-name" placeholder="Popular Movies.txt">
         </div>
         <div class="form-group">
             <label>Content</label>
-            <textarea id="file-content" rows="12" style="font-family:monospace;font-size:0.85rem" placeholder="Plain .txt: one URL/ID/title per line&#10;&#10;YAML format:&#10;collection_name: My Custom Name&#10;library_ids:&#10;  - lib_id_1&#10;  - lib_id_2&#10;items:&#10;  - https://trakt.tv/users/username/lists/list-name&#10;  - 12345&#10;  - Movie Title"></textarea>
+            <textarea id="file-content" rows="12" style="font-family:monospace;font-size:0.85rem" placeholder="Plain .txt: one URL/ID/title per line&#10;&#10;YAML format (multiple URLs to one collection):&#10;collection_name: My Merged Collection&#10;library_ids:&#10;  - lib_id_1&#10;items:&#10;  - https://trakt.tv/lists/user/list1&#10;  - https://trakt.tv/lists/user/list2&#10;  - 12345"></textarea>
         </div>
         <div style="display:flex;gap:10px;justify-content:flex-end">
             <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
@@ -68,6 +70,58 @@
     </div>
 </div>
 
+<!-- Detail / Override modal (like collections page) -->
+<div class="modal" id="detail-modal">
+    <div class="modal-content" style="max-width:750px;max-height:85vh;overflow-y:auto">
+        <h2 id="detail-title">Collection Details</h2>
+        <div id="detail-body" style="margin:15px 0"></div>
+        <div id="detail-edit" style="display:none;margin-top:15px;border-top:1px solid var(--border);padding-top:15px">
+            <h3 style="margin-bottom:10px">Override Settings</h3>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Custom Collection Name (optional)</label>
+                    <input type="text" id="detail-custom-name" placeholder="e.g. My Custom Collection Name">
+                </div>
+                <div class="form-group">
+                    <label>Item Limit (0 = no limit)</label>
+                    <input type="number" id="detail-item-limit" placeholder="50" min="0">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Target Libraries (empty = use global setting)</label>
+                <div id="detail-libraries" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:10px"></div>
+            </div>
+            <div class="form-group">
+                <label>Extra Trakt URLs (one per line - merged into this collection)</label>
+                <textarea id="detail-mdblist-urls" rows="3" style="font-family:monospace;font-size:0.85rem" placeholder="https://trakt.tv/users/username/lists/list-name"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Extra Trakt URLs (one per line - merged into this collection)</label>
+                <textarea id="detail-trakt-urls" rows="3" style="font-family:monospace;font-size:0.85rem" placeholder="https://trakt.tv/users/username/lists/list-name"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Extra TMDb IDs (comma-separated)</label>
+                <input type="text" id="detail-tmdb-ids" placeholder="12345, 67890, 11111">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Custom Poster URL (optional)</label>
+                    <input type="text" id="detail-poster-url" placeholder="https://image.tmdb.org/...">
+                </div>
+                <div class="form-group">
+                    <label>Custom Backdrop URL (optional)</label>
+                    <input type="text" id="detail-backdrop-url" placeholder="https://image.tmdb.org/...">
+                </div>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:10px">
+                <button class="btn btn-primary" onclick="saveOverride()">Save Override</button>
+                <button class="btn btn-secondary" onclick="deleteOverride()" style="color:var(--red)">Remove Override</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Library selection modal -->
 <div class="modal" id="lib-modal">
     <div class="modal-content">
         <h2 id="lib-title">Select Libraries</h2>
@@ -86,6 +140,7 @@
 <script>
 let currentLibFile = null;
 let availableLibs = [];
+let currentCollectionName = null;
 
 async function loadLibs() {
     try {
@@ -95,12 +150,21 @@ async function loadLibs() {
 }
 loadLibs();
 
+function libCheckboxes(containerId, selected) {
+    const c = document.getElementById(containerId);
+    if (!availableLibs.length) { c.innerHTML = '<p style="color:var(--text-dim)">No libraries found. Configure Emby in Settings.</p>'; return; }
+    c.innerHTML = availableLibs.map(lib => `<div class="lib-item"><div class="lib-info"><div class="lib-name">${lib.Name}</div><div class="lib-type">${lib.CollectionType||'mixed'} - ${lib.Id}</div></div><input type="checkbox" class="checkbox" value="${lib.Id}" ${selected.includes(lib.Id)?'checked':''}></div>`).join('');
+}
+function getCheckedLibs(containerId) {
+    return Array.from(document.querySelectorAll(`#${containerId} input[type=checkbox]:checked`)).map(cb => cb.value);
+}
+
 function showNew(format) {
     const ext = format === 'yaml' ? '.yaml' : '.txt';
     document.getElementById('modal-title').textContent = 'New ' + (format === 'yaml' ? 'YAML' : 'Text') + ' List';
     document.getElementById('file-name').value = 'My Collection' + ext;
     document.getElementById('file-content').value = format === 'yaml' ?
-        'collection_name: My Collection\nlibrary_ids: []\nitems:\n  - https://trakt.tv/users/username/lists/list-name\n  - 12345\n' :
+        'collection_name: My Collection\nlibrary_ids: []\nitems:\n  - https://trakt.tv/users/username/lists/list-name\n  - https://trakt.tv/lists/user/another-list\n' :
         '# One item per line: Trakt URL, TMDb ID, or movie title\nhttps://trakt.tv/users/username/lists/list-name\n12345\nThe Dark Knight\n';
     document.getElementById('file-name').disabled = false;
     document.getElementById('file-modal').classList.add('active');
@@ -110,7 +174,7 @@ function editFile(name, index) {
     const content = document.getElementById('content-' + index);
     if (!content) return;
     const text = content.textContent;
-    document.getElementById('modal-title').textContent = 'Edit: ' + name;
+    document.getElementById('modal-title').textContent = 'Edit File: ' + name;
     document.getElementById('file-name').value = name;
     document.getElementById('file-name').disabled = true;
     document.getElementById('file-content').value = text;
@@ -179,6 +243,70 @@ async function syncSingle(name) {
         if (data.success) { alert('Sync started for: ' + name); }
         else { alert(data.error || 'Failed to start'); }
     } catch(e) { alert('Error: ' + e); }
+}
+
+async function showDetail(name) {
+    currentCollectionName = name;
+    document.getElementById('detail-title').textContent = name;
+    document.getElementById('detail-body').innerHTML = '<p style="color:var(--text-dim)">Loading...</p>';
+    document.getElementById('detail-edit').style.display = 'none';
+    document.getElementById('detail-modal').classList.add('active');
+    try {
+        const res = await fetch('/api/list_detail/' + encodeURIComponent(name) + '?type=traktlists');
+        const data = await res.json();
+        if (data.error) { document.getElementById('detail-body').innerHTML = '<p style="color:var(--red)">'+data.error+'</p>'; return; }
+        let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:15px">';
+        html += `<div><strong>File:</strong> ${data.file_name || 'N/A'}</div>`;
+        html += `<div><strong>Collection Name:</strong> ${data.collection_name}</div>`;
+        html += `<div><strong>Items in file:</strong> ${(data.items||[]).length}</div>`;
+        html += '</div>';
+        if (data.items && data.items.length > 0) {
+            html += '<div class="form-group"><label>Items (from file)</label><pre style="background:var(--bg);padding:10px;border-radius:4px;font-size:0.85rem;overflow-x:auto;max-height:150px;overflow-y:auto">'+data.items.map(i => String(i)).join('\n')+'</pre></div>';
+        }
+        const ov = data.override || {};
+        if (Object.keys(ov).length > 0) html += '<div class="alert alert-info" style="margin-top:10px">This collection has overrides applied.</div>';
+        document.getElementById('detail-body').innerHTML = html;
+        document.getElementById('detail-edit').style.display = 'block';
+        libCheckboxes('detail-libraries', ov.library_ids || []);
+        document.getElementById('detail-custom-name').value = ov.custom_name || '';
+        document.getElementById('detail-item-limit').value = ov.item_limit || '';
+        document.getElementById('detail-mdblist-urls').value = (ov.extra_mdblist_urls || []).join('\n');
+        document.getElementById('detail-trakt-urls').value = (ov.extra_trakt_urls || []).join('\n');
+        document.getElementById('detail-tmdb-ids').value = (ov.extra_tmdb_ids || []).join(', ');
+        document.getElementById('detail-poster-url').value = ov.custom_poster_url || '';
+        document.getElementById('detail-backdrop-url').value = ov.custom_backdrop_url || '';
+    } catch(e) { document.getElementById('detail-body').innerHTML = '<p style="color:var(--red)">Error: '+e+'</p>'; }
+}
+
+async function saveOverride() {
+    if (!currentCollectionName) return;
+    const itemLimitVal = document.getElementById('detail-item-limit').value;
+    const override = {
+        custom_name: document.getElementById('detail-custom-name').value.trim() || null,
+        item_limit: itemLimitVal ? parseInt(itemLimitVal) : null,
+        library_ids: getCheckedLibs('detail-libraries'),
+        extra_mdblist_urls: document.getElementById('detail-mdblist-urls').value.split('\n').map(s=>s.trim()).filter(s=>s),
+        extra_trakt_urls: document.getElementById('detail-trakt-urls').value.split('\n').map(s=>s.trim()).filter(s=>s),
+        extra_tmdb_ids: document.getElementById('detail-tmdb-ids').value.split(',').map(s=>parseInt(s.trim())).filter(s=>s),
+        custom_poster_url: document.getElementById('detail-poster-url').value.trim() || null,
+        custom_backdrop_url: document.getElementById('detail-backdrop-url').value.trim() || null,
+    };
+    try {
+        const res = await fetch('/api/list_override', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:currentCollectionName,override})});
+        const data = await res.json();
+        if (data.success) { alert('Override saved!'); location.reload(); }
+        else alert(data.error || 'Failed');
+    } catch(e) { alert('Error: '+e); }
+}
+
+async function deleteOverride() {
+    if (!currentCollectionName || !confirm('Remove all overrides for this collection?')) return;
+    try {
+        const res = await fetch('/api/list_override_delete', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:currentCollectionName})});
+        const data = await res.json();
+        if (data.success) { alert('Override removed!'); location.reload(); }
+        else alert(data.error || 'Failed');
+    } catch(e) { alert('Error: '+e); }
 }
 
 async function showLibSelect(filename) {

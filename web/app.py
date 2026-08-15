@@ -393,6 +393,97 @@ def sync_single_list():
     return jsonify({'success': True, 'message': f'Syncing {name}'})
 
 
+@app.route('/api/list_detail/<path:list_name>')
+def list_detail(list_name):
+    """Get detail for an MDBList/Trakt list collection: file content, override, libraries."""
+    from src.recipe_override import RecipeOverrideManager
+    config = load_config()
+    # Determine which directory to look in based on the request referrer or a query param
+    list_type = request.args.get('type', 'mdblists')
+    d = config.get(list_type, {}).get('directory', list_type)
+    p = os.path.join(BASE_DIR, d)
+    # Find the file - match by filename or collection_name
+    file_content = None
+    file_name = None
+    collection_name = list_name
+    if os.path.isdir(p):
+        for f in sorted(os.listdir(p)):
+            if f.endswith(('.txt', '.yaml', '.yml')):
+                fp = os.path.join(p, f)
+                with open(fp, 'r', encoding='utf-8') as fh:
+                    c = fh.read()
+                # Check if filename matches or collection_name matches
+                col_name = os.path.splitext(f)[0]
+                try:
+                    import yaml as _yaml
+                    parsed = _yaml.safe_load(c)
+                    if isinstance(parsed, dict) and parsed.get('collection_name'):
+                        col_name = parsed['collection_name']
+                except Exception:
+                    pass
+                if f == list_name or col_name == list_name:
+                    file_content = c
+                    file_name = f
+                    collection_name = col_name
+                    break
+    # Get override
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    override_mgr = RecipeOverrideManager(base_dir)
+    override = override_mgr.get_override(collection_name)
+    # Parse file content for display
+    parsed = None
+    items = []
+    library_ids_from_file = []
+    if file_content:
+        try:
+            import yaml as _yaml
+            parsed = _yaml.safe_load(file_content)
+            if isinstance(parsed, dict):
+                items = parsed.get('items', [])
+                library_ids_from_file = parsed.get('library_ids', [])
+        except Exception:
+            # Plain text file - one item per line
+            items = [line.strip() for line in file_content.splitlines() if line.strip() and not line.startswith('#')]
+    return jsonify({
+        'collection_name': collection_name,
+        'file_name': file_name,
+        'file_content': file_content,
+        'items': items,
+        'library_ids_from_file': library_ids_from_file,
+        'override': override,
+        'list_type': list_type,
+    })
+
+
+@app.route('/api/list_override', methods=['POST'])
+def save_list_override():
+    """Save override for an MDBList/Trakt list collection."""
+    from src.recipe_override import RecipeOverrideManager
+    data = request.json
+    name = data.get('name')
+    override = data.get('override', {})
+    if not name:
+        return jsonify({'error': 'No name'}), 400
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    mgr = RecipeOverrideManager(base_dir)
+    mgr.set_override(name, override)
+    return jsonify({'success': True})
+
+
+@app.route('/api/list_override_delete', methods=['POST'])
+def delete_list_override():
+    """Delete override for an MDBList/Trakt list collection."""
+    from src.recipe_override import RecipeOverrideManager
+    data = request.json
+    name = data.get('name')
+    if not name:
+        return jsonify({'error': 'No name'}), 400
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    mgr = RecipeOverrideManager(base_dir)
+    mgr.delete_override(name)
+    return jsonify({'success': True})
+
+
 @app.route('/api/sync', methods=['POST'])
 def trigger_sync():
     if sync_state['running']:
