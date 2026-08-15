@@ -484,6 +484,197 @@ def delete_list_override():
     return jsonify({'success': True})
 
 
+@app.route('/api/create_from_url', methods=['POST'])
+def create_from_url():
+    """Create a new MDBList or Trakt list file from a URL.
+    Fetches the list name from the API and creates a YAML file."""
+    data = request.json
+    url = data.get('url', '').strip()
+    list_type = data.get('type', 'mdblists')
+    custom_name = data.get('custom_name', '').strip()
+    library_ids = data.get('library_ids', [])
+
+    if not url:
+        return jsonify({'error': 'No URL provided'}), 400
+
+    config = load_config()
+    d = config.get(list_type, {}).get('directory', list_type)
+    p = os.path.join(BASE_DIR, d)
+    os.makedirs(p, exist_ok=True)
+
+    # Determine collection name and file content based on type
+    if list_type == 'mdblists':
+        # Try to fetch list info from MDBList API
+        mdblist_cfg = config.get('mdblist', {})
+        api_key = mdblist_cfg.get('api_key', '')
+        if not api_key:
+            return jsonify({'error': 'MDBList API key not configured'}), 400
+        try:
+            from src.mdblist_client import MDBListClient
+            client = MDBListClient(api_key=api_key)
+            list_id = client._extract_list_id_from_url(url)
+            if not list_id:
+                return jsonify({'error': 'Could not extract list ID from URL'}), 400
+            # Fetch a few items to get the list name
+            items = client.get_list_items(url, limit=1)
+            # Try to get list info
+            list_info = client._make_request(f"lists/{list_id}")
+            list_name = ''
+            if list_info and isinstance(list_info, dict):
+                list_name = list_info.get('name', '')
+            if not list_name:
+                list_name = list_id.split('/')[-1].replace('-', ' ').title()
+            collection_name = custom_name or list_name
+        except Exception as e:
+            return jsonify({'error': f'Failed to fetch MDBList info: {e}'}), 500
+
+        # Create YAML file
+        safe_name = collection_name.replace('/', '-').replace(' ', '_')
+        filename = f"{safe_name}.yaml"
+        filepath = os.path.join(p, filename)
+        # Don't overwrite existing files
+        if os.path.exists(filepath):
+            return jsonify({'error': f'File already exists: {filename}'}), 409
+        yaml_content = f"collection_name: {collection_name}\n"
+        if library_ids:
+            yaml_content += "library_ids:\n"
+            for lid in library_ids:
+                yaml_content += f"  - '{lid}'\n"
+        else:
+            yaml_content += "library_ids: []\n"
+        yaml_content += f"items:\n  - {url}\n"
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(yaml_content)
+        return jsonify({'success': True, 'filename': filename, 'collection_name': collection_name})
+
+    elif list_type == 'traktlists':
+        # Parse Trakt URL: https://trakt.tv/users/username/lists/list-name
+        import re
+        m = re.match(r'https://trakt\.tv/users/([^/]+)/lists/([^/?]+)', url)
+        if not m:
+            return jsonify({'error': 'Invalid Trakt URL. Expected: https://trakt.tv/users/username/lists/list-name'}), 400
+        username = m.group(1)
+        list_slug = m.group(2)
+        # Try to fetch list info from Trakt
+        trakt_cfg = config.get('trakt', {})
+        client_id = trakt_cfg.get('client_id', '')
+        list_name = ''
+        if client_id and client_id != 'YOUR TRAKT CLIENT ID':
+            try:
+                from src.trakt_client import TraktClient
+                trakt = TraktClient(client_id=client_id, client_secret=trakt_cfg.get('client_secret', ''), access_token=trakt_cfg.get('access_token', ''))
+                list_info = trakt.get_list_info(username, list_slug)
+                if list_info:
+                    list_name = list_info.get('name', '')
+            except Exception:
+                pass
+        if not list_name:
+            list_name = list_slug.replace('-', ' ').title()
+        collection_name = custom_name or list_name
+
+        safe_name = collection_name.replace('/', '-').replace(' ', '_')
+        filename = f"{safe_name}.yaml"
+        filepath = os.path.join(p, filename)
+        if os.path.exists(filepath):
+            return jsonify({'error': f'File already exists: {filename}'}), 409
+        yaml_content = f"collection_name: {collection_name}\n"
+        if library_ids:
+            yaml_content += "library_ids:\n"
+            for lid in library_ids:
+                yaml_content += f"  - '{lid}'\n"
+        else:
+            yaml_content += "library_ids: []\n"
+        yaml_content += f"items:\n  - {url}\n"
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(yaml_content)
+        return jsonify({'success': True, 'filename': filename, 'collection_name': collection_name})
+
+    else:
+        return jsonify({'error': 'Invalid type'}), 400
+
+
+@app.route('/api/cleanup_collections', methods=['POST'])
+def cleanup_collections():
+    """Remove Emby collections that are not in the enabled recipes/lists."""
+    data = request.json or {}
+    dry_run = data.get('dry_run', False)
+    config = load_config()
+    emby_cfg = config.get('emby', {})
+    if not emby_cfg.get('server_url') or not emby_cfg.get('api_key'):
+        return jsonify({'error': 'Emby not configured'}), 400
+
+    from src.emby_client import EmbyClient
+    emby = EmbyClient(
+        server_url=emby_cfg['server_url'],
+        api_key=emby_cfg['api_key'],
+        user_id=emby_cfg.get('user_id', ''),
+        config={}
+    )
+
+    # Get all collections from Emby
+    params = {'IncludeItemTypes': 'BoxSet', 'Recursive': 'true', 'Fields': 'Name'}
+    endpoint = f"/Users/{emby.user_id}/Items"
+    data_resp = emby._make_api_request('GET', endpoint, params=params)
+    emby_collections = {}
+    if data_resp and 'Items' in data_resp:
+        for item in data_resp['Items']:
+            emby_collections[item['Name']] = item['Id']
+
+    # Get all managed collection names (enabled recipes + enabled lists)
+    enabled_set = set(get_enabled_recipes())
+    # Also get ALL recipe names (even disabled ones, since they're managed)
+    from src.collection_recipes import RECIPES
+    all_managed = set(r.get('name', '') for r in RECIPES)
+    # Add all MDBList and Trakt collection names
+    for list_type in ['mdblists', 'traktlists']:
+        d = config.get(list_type, {}).get('directory', list_type)
+        p = os.path.join(BASE_DIR, d)
+        if os.path.isdir(p):
+            import yaml as _yaml
+            for f in sorted(os.listdir(p)):
+                if f.endswith(('.txt', '.yaml', '.yml')):
+                    col_name = os.path.splitext(f)[0]
+                    try:
+                        with open(os.path.join(p, f), 'r', encoding='utf-8') as fh:
+                            parsed = _yaml.safe_load(fh.read())
+                        if isinstance(parsed, dict) and parsed.get('collection_name'):
+                            col_name = parsed['collection_name']
+                    except Exception:
+                        pass
+                    all_managed.add(col_name)
+                    # Also check for custom_name overrides
+                    from src.recipe_override import RecipeOverrideManager
+                    mgr = RecipeOverrideManager(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    ov = mgr.get_override(col_name)
+                    if ov.get('custom_name'):
+                        all_managed.add(ov['custom_name'])
+
+    # Find collections in Emby that are not managed
+    to_remove = {}
+    for name, cid in emby_collections.items():
+        if name not in all_managed:
+            to_remove[name] = cid
+
+    if dry_run:
+        return jsonify({'success': True, 'dry_run': True, 'would_remove': to_remove, 'count': len(to_remove)})
+
+    removed = {}
+    errors = {}
+    for name, cid in to_remove.items():
+        try:
+            # Delete the collection from Emby
+            del_url = f"{emby.server_url}/Items/{cid}?api_key={emby.api_key}"
+            resp = emby.session.delete(del_url, timeout=15)
+            if resp.status_code in (200, 204):
+                removed[name] = cid
+            else:
+                errors[name] = f"HTTP {resp.status_code}"
+        except Exception as e:
+            errors[name] = str(e)
+
+    return jsonify({'success': True, 'removed': removed, 'errors': errors, 'count': len(removed)})
+
+
 @app.route('/api/sync', methods=['POST'])
 def trigger_sync():
     if sync_state['running']:

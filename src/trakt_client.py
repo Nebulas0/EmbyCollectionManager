@@ -156,6 +156,16 @@ class TraktClient:
         response = self._make_request('GET', endpoint)
         return response if response else []
     
+    def get_list_info(self, username: str, list_slug: str) -> Optional[Dict]:
+        """Get info about a Trakt list (name, description, etc)."""
+        try:
+            endpoint = f"/users/{username}/lists/{list_slug}"
+            data = self._make_request('GET', endpoint)
+            return data
+        except Exception as e:
+            self.logger.error(f"Failed to get Trakt list info: {e}")
+            return None
+
     def get_list_items(self, username: str, list_slug: str, item_type: str = 'movies') -> List[Dict]:
         """
         Get all items from a specific user list using pagination.

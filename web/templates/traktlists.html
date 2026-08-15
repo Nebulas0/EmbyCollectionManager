@@ -19,6 +19,8 @@
 <div class="card" style="margin-bottom:15px">
     <button class="btn btn-primary" onclick="showNew('txt')">+ New .txt List</button>
     <button class="btn btn-primary" onclick="showNew('yaml')">+ New .yaml List</button>
+    <button class="btn btn-primary" onclick="showCreateFromUrl()">+ Create from Trakt URL</button>
+    <button class="btn btn-secondary" onclick="cleanupCollections()" style="margin-left:auto">Cleanup Emby Collections</button>
 </div>
 
 {% if files %}
@@ -135,6 +137,32 @@
         </div>
     </div>
 </div>
+<!-- Create from URL modal -->
+<div class="modal" id="url-modal">
+    <div class="modal-content" style="max-width:600px">
+        <h2>Create Collection from Trakt URL</h2>
+        <p style="color:var(--text-dim);margin-bottom:15px;font-size:0.9rem">
+            Enter a Trakt list URL to create a new collection. The list name will be fetched automatically.
+        </p>
+        <div class="form-group">
+            <label>Trakt URL</label>
+            <input type="text" id="url-input" placeholder="https://trakt.tv/users/username/lists/list-name">
+        </div>
+        <div class="form-group">
+            <label>Custom Collection Name (optional)</label>
+            <input type="text" id="url-custom-name" placeholder="Leave empty to use list name from Trakt">
+        </div>
+        <div class="form-group">
+            <label>Target Libraries (optional - empty = use global)</label>
+            <div id="url-libraries" style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:10px"></div>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button class="btn btn-secondary" onclick="closeUrlModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="createFromUrl()">Create</button>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 {% block scripts %}
 <script>
@@ -357,6 +385,64 @@ async function saveLibs() {
         } else {
             alert(data.error || 'Failed');
         }
+    } catch(e) { alert('Error: ' + e); }
+}
+function showCreateFromUrl() {
+    document.getElementById('url-input').value = '';
+    document.getElementById('url-custom-name').value = '';
+    libCheckboxes('url-libraries', []);
+    document.getElementById('url-modal').classList.add('active');
+}
+function closeUrlModal() { document.getElementById('url-modal').classList.remove('active'); }
+
+async function createFromUrl() {
+    const url = document.getElementById('url-input').value.trim();
+    const customName = document.getElementById('url-custom-name').value.trim();
+    const libraryIds = getCheckedLibs('url-libraries');
+    if (!url) { alert('Enter a URL'); return; }
+    try {
+        const res = await fetch('/api/create_from_url', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({url, type: 'traktlists', custom_name: customName, library_ids: libraryIds})
+        });
+        const data = await res.json();
+        if (data.success) {
+            alert('Created: ' + data.filename);
+            closeUrlModal();
+            location.reload();
+        } else {
+            alert(data.error || 'Failed');
+        }
+    } catch(e) { alert('Error: ' + e); }
+}
+
+async function cleanupCollections() {
+    if (!confirm('Remove Emby collections that are not managed by Emby Collection Manager?\\n\\nClick OK to see what would be removed (dry run first).')) return;
+    try {
+        const res = await fetch('/api/cleanup_collections', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({dry_run: true})
+        });
+        const data = await res.json();
+        if (data.error) { alert(data.error); return; }
+        const names = Object.keys(data.would_remove || {});
+        if (names.length === 0) {
+            alert('No unmanaged collections found in Emby. Everything is clean!');
+            return;
+        }
+        const msg = 'Would remove ' + names.length + ' collection(s):\\n\\n' + names.join('\\n') + '\\n\\nClick OK to proceed with removal.';
+        if (!confirm(msg)) return;
+        const res2 = await fetch('/api/cleanup_collections', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({dry_run: false})
+        });
+        const data2 = await res2.json();
+        if (data2.error) { alert(data2.error); return; }
+        const removed = Object.keys(data2.removed || {});
+        const errors = Object.keys(data2.errors || {});
+        let resultMsg = 'Removed ' + removed.length + ' collection(s).';
+        if (errors.length > 0) resultMsg += '\\n\\nErrors: ' + errors.map(n => n + ': ' + data2.errors[n]).join('\\n');
+        alert(resultMsg);
     } catch(e) { alert('Error: ' + e); }
 }
 </script>
