@@ -145,6 +145,8 @@ def run_sync_background():
         state = load_state()
         enabled = state.get('enabled_recipes', None)
         original_recipes = app_logic_module.RECIPES
+        # Clear single-recipe mode for full syncs
+        app_logic_module._single_recipe_mode = None
         if enabled is not None:
             app_logic_module.RECIPES = [r for r in original_recipes if r.get('name') in enabled]
         old_argv = sys.argv
@@ -154,6 +156,7 @@ def run_sync_background():
         finally:
             sys.argv = old_argv
             app_logic_module.RECIPES = original_recipes
+            app_logic_module._single_recipe_mode = None
         sync_state['last_status'] = 'success'
     except Exception as e:
         sync_state['last_status'] = 'error'
@@ -625,7 +628,10 @@ def cleanup_collections():
     # Also get ALL recipe names (even disabled ones, since they're managed)
     from src.collection_recipes import RECIPES
     all_managed = set(r.get('name', '') for r in RECIPES)
-    # Add all MDBList and Trakt collection names
+    # Get override manager once (not inside the loop)
+    from src.recipe_override import RecipeOverrideManager
+    mgr = RecipeOverrideManager(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    # Add all MDBList and Trakt collection names + custom_name overrides
     for list_type in ['mdblists', 'traktlists']:
         d = config.get(list_type, {}).get('directory', list_type)
         p = os.path.join(BASE_DIR, d)
@@ -642,12 +648,15 @@ def cleanup_collections():
                     except Exception:
                         pass
                     all_managed.add(col_name)
-                    # Also check for custom_name overrides
-                    from src.recipe_override import RecipeOverrideManager
-                    mgr = RecipeOverrideManager(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    # Check for custom_name override
                     ov = mgr.get_override(col_name)
                     if ov.get('custom_name'):
                         all_managed.add(ov['custom_name'])
+    # Also check overrides for built-in recipes
+    all_overrides = mgr.get_all_overrides()
+    for name, ov in all_overrides.items():
+        if ov.get('custom_name'):
+            all_managed.add(ov['custom_name'])
 
     # Find collections in Emby that are not managed
     to_remove = {}

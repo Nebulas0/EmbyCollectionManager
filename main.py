@@ -104,17 +104,27 @@ def run_sync_once(config_path="config/config.yaml", single_recipe=None):
         original_recipes = app_logic.RECIPES
 
         if single_recipe:
-            # Single recipe mode
-            app_logic.RECIPES = [r for r in RECIPES if r.get('name') == single_recipe]
-            if not app_logic.RECIPES:
-                logger.error(f"Recipe '{single_recipe}' not found")
-                return
-            logger.info(f"Single-recipe mode: syncing only '{single_recipe}'")
+            # Single recipe/list mode - sync only one collection
+            # Check if it's a built-in recipe
+            matching = [r for r in RECIPES if r.get('name') == single_recipe]
+            if matching:
+                app_logic.RECIPES = matching
+                logger.info(f"Single-recipe mode: syncing only '{single_recipe}'")
+            else:
+                # It's a list collection (MDBList/Trakt), not a built-in recipe
+                # Set RECIPES to empty so no built-in recipes run, and pass the
+                # single name to app_logic via _single_recipe_mode
+                app_logic.RECIPES = []
+                logger.info(f"Single-list mode: syncing only list collection '{single_recipe}'")
+            # Tell app_logic to only process this one collection
+            app_logic._single_recipe_mode = single_recipe
             notifier.notify_sync_start(1)
         elif enabled_recipes is not None:
             app_logic.RECIPES = [r for r in original_recipes if r.get('name') in enabled_recipes]
             logger.info(f"Filtered to {len(app_logic.RECIPES)} enabled recipes")
             notifier.notify_sync_start(len(app_logic.RECIPES))
+            # Clear single-recipe mode
+            app_logic._single_recipe_mode = None
 
         old_argv = sys.argv
         sys.argv = ['app_logic', '--config', config_path, '--targets', sync_target]
@@ -124,6 +134,7 @@ def run_sync_once(config_path="config/config.yaml", single_recipe=None):
         finally:
             sys.argv = old_argv
             app_logic.RECIPES = original_recipes
+            app_logic._single_recipe_mode = None
 
         duration = str(datetime.now() - start_time).split('.')[0]
         logger.info(f"Sync completed successfully in {duration}")

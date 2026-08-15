@@ -15,6 +15,10 @@ import yaml
 import os
 from typing import List, Dict, Any, Optional
 
+# Module-level flag for single-recipe/list sync mode.
+# Set by main.py's run_sync_once() to restrict sync to one collection.
+_single_recipe_mode = None
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -129,7 +133,12 @@ def main():
     _enabled_names = None
     # Check if RECIPES was patched (filtered) by comparing against the original
     from src.collection_recipes import RECIPES as _original_recipes
-    if len(active_recipes) != len(_original_recipes) or any(r.get('name') != o.get('name') for r, o in zip(active_recipes, _original_recipes)):
+    if _single_recipe_mode:
+        # Single-recipe/list mode: only process the one specified collection
+        _enabled_names = {_single_recipe_mode}
+        logger.info(f"Single-collection mode: only syncing '{_single_recipe_mode}'")
+    elif len(active_recipes) != len(_original_recipes) or any(r.get('name') != o.get('name') for r, o in zip(active_recipes, _original_recipes)):
+        # RECIPES was patched (filtered) - normal filtered sync mode
         _enabled_names = set(r.get('name', '') for r in active_recipes)
         # Also load enabled collection names from webui_state.json so that
         # MDBList/Trakt list collections are included in the filter
@@ -143,6 +152,8 @@ def main():
                     _enabled_names = set(_state_enabled)
         except Exception:
             pass
+        if _enabled_names is not None:
+            logger.info(f"Filtering enabled collections: {_enabled_names}")
 
     # Initialize recipe override manager (needed for MDBList/Trakt overrides too)
     override_mgr = RecipeOverrideManager(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -671,6 +682,74 @@ def main():
                         logger.info(f"No artwork URLs found or specified for collection '{collection_name}', skipping artwork update.")
             except Exception as e:
                 logger.error(f"Error processing collection '{collection_name}' for Emby: {e}")
+
+    # Remove disabled collections from Emby
+    # If a collection was previously synced but is now disabled (not in _enabled_names),
+    # remove it from Emby to keep things clean.
+    if emby and _enabled_names is not None and not _single_recipe_mode:
+        try:
+            logger.info("Checking for disabled collections to remove from Emby...")
+            # Get all collections from Emby
+            params = {'IncludeItemTypes': 'BoxSet', 'Recursive': 'true', 'Fields': 'Name'}
+            endpoint = f"/Users/{emby.user_id}/Items"
+            emby_resp = emby._make_api_request('GET', endpoint, params=params)
+            emby_collections = {}
+            if emby_resp and 'Items' in emby_resp:
+                for item in emby_resp['Items']:
+                    emby_collections[item['Name']] = item['Id']
+
+            # Build the set of ALL managed collection names (enabled + disabled)
+            # so we only remove collections that WE manage, not user-created ones
+            all_managed_names = set()
+            # Built-in recipes
+            from src.collection_recipes import RECIPES as _all_recipes
+            for r in _all_recipes:
+                all_managed_names.add(r.get('name', ''))
+            # Recipe duplicates
+            for dup in recipe_duplicates:
+                all_managed_names.add(dup.get('new_name', ''))
+            # MDBList and Trakt file collection names
+            for list_type in ['mdblists', 'traktlists']:
+                d = config.get(list_type, {}).get('directory', list_type)
+                p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), d)
+                if os.path.isdir(p):
+                    for f in sorted(os.listdir(p)):
+                        if f.endswith(('.txt', '.yaml', '.yml')):
+                            col_name = os.path.splitext(f)[0]
+                            try:
+                                with open(os.path.join(p, f), 'r', encoding='utf-8') as fh:
+                                    parsed = yaml.safe_load(fh.read())
+                                if isinstance(parsed, dict) and parsed.get('collection_name'):
+                                    col_name = parsed['collection_name']
+                            except Exception:
+                                pass
+                            all_managed_names.add(col_name)
+            # Custom name overrides
+            for name, ov in recipe_overrides.items():
+                if ov.get('custom_name'):
+                    all_managed_names.add(ov['custom_name'])
+
+            # Find managed collections that are NOT enabled and remove them
+            removed_count = 0
+            for name, cid in emby_collections.items():
+                if name in all_managed_names and name not in _enabled_names:
+                    logger.info(f"Removing disabled collection '{name}' (ID: {cid}) from Emby")
+                    try:
+                        del_url = f"{emby.server_url}/Items/{cid}?api_key={emby.api_key}"
+                        resp = emby.session.delete(del_url, timeout=15)
+                        if resp.status_code in (200, 204):
+                            removed_count += 1
+                            logger.info(f"Successfully removed collection '{name}' from Emby")
+                        else:
+                            logger.warning(f"Failed to remove collection '{name}': HTTP {resp.status_code}")
+                    except Exception as e:
+                        logger.warning(f"Error removing collection '{name}': {e}")
+            if removed_count > 0:
+                logger.info(f"Removed {removed_count} disabled collection(s) from Emby")
+            else:
+                logger.info("No disabled collections needed removal from Emby")
+        except Exception as e:
+            logger.error(f"Error during disabled collection cleanup: {e}")
 
     # Process custom lists if provided
     if args.custom_list:
