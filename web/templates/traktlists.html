@@ -3,30 +3,45 @@
 {% block content %}
 <h1 style="margin-bottom:20px">Trakt Lists</h1>
 <div class="card">
-    <p style="margin-bottom:15px;color:var(--text-dim)">
-        Trakt list files in <code>{{ directory }}/</code>. Supports .txt (one item per line) and .yaml format.
-        YAML format allows per-collection library selection, custom names, and multiple URLs per collection.
-    </p>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+        <p style="color:var(--text-dim);margin:0">
+            Trakt list files in <code>{{ directory }}/</code>. Supports .txt (one item per line) and .yaml format.
+            YAML format allows per-collection library selection, custom names, and multiple URLs per collection.
+            <br><span style="color:var(--green)">{{ enabled_count }}</span> of {{ files|length }} collections enabled.
+        </p>
+        <div style="display:flex;gap:8px">
+            <button class="btn btn-green btn-sm" onclick="toggleAllLists(true)">Enable All</button>
+            <button class="btn btn-secondary btn-sm" onclick="toggleAllLists(false)">Disable All</button>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:15px">
     <button class="btn btn-primary" onclick="showNew('txt')">+ New .txt List</button>
     <button class="btn btn-primary" onclick="showNew('yaml')">+ New .yaml List</button>
 </div>
 
 {% if files %}
 <div class="card">
-    <h2>Existing Lists ({{ files|length }})</h2>
-    <ul class="file-list">
+    <h2>Collections ({{ files|length }})</h2>
+    <ul class="recipe-list">
         {% for file in files %}
-        <li class="file-item">
-            <div class="file-item-header">
-                <span class="file-item-name">{{ file.name }}</span>
-                <div>
-                    <button class="btn btn-secondary btn-sm" onclick="editFile('{{ file.name }}',{{ loop.index0 }})">Edit</button>
-                    <button class="btn btn-secondary btn-sm" onclick="showLibSelect('{{ file.name }}')">Libraries</button>
-                    <button class="btn btn-secondary btn-sm" onclick="deleteFile('{{ file.name }}')" style="color:var(--red)">Delete</button>
-                </div>
+        <li class="recipe-item recipe-row" data-recipe-name="{{ file.collection_name|lower }}">
+            <div class="recipe-name" style="cursor:pointer" onclick="editFile('{{ file.name }}',{{ loop.index0 }})">
+                {{ file.collection_name }}
+                <span class="recipe-cat">{{ file.name }}</span>
             </div>
-            <div class="file-content" id="content-{{ loop.index0 }}">{{ file.content }}</div>
-            <div id="libs-{{ file.name|replace('.','_')|replace(' ','_') }}" style="margin-top:8px"></div>
+            <div style="display:flex;gap:6px;align-items:center">
+                <button class="btn btn-secondary btn-sm" onclick="syncSingle('{{ file.collection_name|replace("'","\\'") }}')">Sync</button>
+                <button class="btn btn-secondary btn-sm" onclick="editFile('{{ file.name }}',{{ loop.index0 }})">Edit</button>
+                <button class="btn btn-secondary btn-sm" onclick="showLibSelect('{{ file.name }}')">Libraries</button>
+                <button class="btn btn-secondary btn-sm" onclick="deleteFile('{{ file.name }}')" style="color:var(--red)">Delete</button>
+                <label class="checkbox-label" style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                    <input type="checkbox" {% if file.enabled %}checked{% endif %} onchange="toggleList('{{ file.collection_name|replace("'","\\'") }}',this.checked)">
+                    <span>Enabled</span>
+                </label>
+            </div>
+            <div class="file-content" id="content-{{ loop.index0 }}" style="display:none">{{ file.content }}</div>
         </li>
         {% endfor %}
     </ul>
@@ -35,7 +50,6 @@
 <div class="card"><p style="color:var(--text-dim)">No Trakt list files found. Create one to get started.</p></div>
 {% endif %}
 
-<!-- File editor modal -->
 <div class="modal" id="file-modal">
     <div class="modal-content">
         <h2 id="modal-title">New Trakt List</h2>
@@ -54,7 +68,6 @@
     </div>
 </div>
 
-<!-- Library selection modal -->
 <div class="modal" id="lib-modal">
     <div class="modal-content">
         <h2 id="lib-title">Select Libraries</h2>
@@ -86,7 +99,7 @@ function showNew(format) {
     const ext = format === 'yaml' ? '.yaml' : '.txt';
     document.getElementById('modal-title').textContent = 'New ' + (format === 'yaml' ? 'YAML' : 'Text') + ' List';
     document.getElementById('file-name').value = 'My Collection' + ext;
-    document.getElementById('file-content').value = format === 'yaml' ? 
+    document.getElementById('file-content').value = format === 'yaml' ?
         'collection_name: My Collection\nlibrary_ids: []\nitems:\n  - https://trakt.tv/users/username/lists/list-name\n  - 12345\n' :
         '# One item per line: Trakt URL, TMDb ID, or movie title\nhttps://trakt.tv/users/username/lists/list-name\n12345\nThe Dark Knight\n';
     document.getElementById('file-name').disabled = false;
@@ -94,11 +107,13 @@ function showNew(format) {
 }
 
 function editFile(name, index) {
-    const content = document.getElementById('content-' + index).textContent;
+    const content = document.getElementById('content-' + index);
+    if (!content) return;
+    const text = content.textContent;
     document.getElementById('modal-title').textContent = 'Edit: ' + name;
     document.getElementById('file-name').value = name;
     document.getElementById('file-name').disabled = true;
-    document.getElementById('file-content').value = content;
+    document.getElementById('file-content').value = text;
     document.getElementById('file-modal').classList.add('active');
 }
 
@@ -132,11 +147,43 @@ async function deleteFile(name) {
     } catch(e) { alert('Error: ' + e); }
 }
 
-// Per-collection library selection
+async function toggleList(name, enabled) {
+    try {
+        await fetch('/api/toggle_list', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, enabled})
+        });
+    } catch(e) { alert('Error: ' + e); }
+}
+
+async function toggleAllLists(enable) {
+    try {
+        const res = await fetch('/api/toggle_all_lists', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({type: 'traktlists', enable})
+        });
+        const data = await res.json();
+        if (data.success) location.reload();
+        else alert(data.error || 'Failed');
+    } catch(e) { alert('Error: ' + e); }
+}
+
+async function syncSingle(name) {
+    if (!confirm('Sync only "' + name + '" now?')) return;
+    try {
+        const res = await fetch('/api/sync_single_list', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name})
+        });
+        const data = await res.json();
+        if (data.success) { alert('Sync started for: ' + name); }
+        else { alert(data.error || 'Failed to start'); }
+    } catch(e) { alert('Error: ' + e); }
+}
+
 async function showLibSelect(filename) {
     currentLibFile = filename;
     document.getElementById('lib-title').textContent = 'Libraries for: ' + filename;
-    // Load current config
     let currentLibs = [];
     try {
         const res = await fetch('/api/list_config?type=traktlists');
@@ -145,7 +192,6 @@ async function showLibSelect(filename) {
             currentLibs = configs[filename].library_ids;
         }
     } catch(e) {}
-    // Render checkboxes
     const list = document.getElementById('lib-list');
     if (availableLibs.length === 0) {
         list.innerHTML = '<p style="color:var(--text-dim)">No libraries found. Configure Emby in Settings first.</p>';

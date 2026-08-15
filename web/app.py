@@ -309,6 +309,90 @@ def toggle_category():
     return jsonify({'success': True, 'enabled_count': len(cur)})
 
 
+@app.route('/api/toggle_list', methods=['POST'])
+def toggle_list():
+    """Toggle enable/disable for an MDBList or Trakt list collection."""
+    data = request.json
+    name = data.get('name')
+    enabled = data.get('enabled')
+    if not name:
+        return jsonify({'error': 'No name'}), 400
+    state = load_state()
+    cur = set(get_enabled_recipes())
+    if enabled:
+        cur.add(name)
+    else:
+        cur.discard(name)
+    state['enabled_recipes'] = list(cur)
+    save_state(state)
+    return jsonify({'success': True, 'enabled_count': len(cur)})
+
+
+@app.route('/api/toggle_all_lists', methods=['POST'])
+def toggle_all_lists():
+    """Enable/disable all MDBList or Trakt list collections."""
+    data = request.json
+    list_type = data.get('type', 'mdblists')
+    enable = data.get('enable', True)
+    config = load_config()
+    d = config.get(list_type, {}).get('directory', list_type)
+    p = os.path.join(BASE_DIR, d)
+    state = load_state()
+    cur = set(get_enabled_recipes())
+    if os.path.isdir(p):
+        for f in sorted(os.listdir(p)):
+            if f.endswith(('.txt', '.yaml', '.yml')):
+                col_name = os.path.splitext(f)[0]
+                try:
+                    import yaml as _yaml
+                    with open(os.path.join(p, f), 'r', encoding='utf-8') as fh:
+                        parsed = _yaml.safe_load(fh.read())
+                    if isinstance(parsed, dict) and parsed.get('collection_name'):
+                        col_name = parsed['collection_name']
+                except Exception:
+                    pass
+                if enable:
+                    cur.add(col_name)
+                else:
+                    cur.discard(col_name)
+    state['enabled_recipes'] = list(cur)
+    save_state(state)
+    return jsonify({'success': True, 'enabled_count': len(cur)})
+
+
+@app.route('/api/sync_single_list', methods=['POST'])
+def sync_single_list():
+    """Sync a single MDBList or Trakt list collection by name."""
+    data = request.json
+    name = data.get('name')
+    if not name:
+        return jsonify({'error': 'No name'}), 400
+    if sync_state['running']:
+        return jsonify({'error': 'A sync is already running'}), 409
+
+    def run_single():
+        global sync_state
+        sync_state['running'] = True
+        sync_state['last_error'] = None
+        sync_state['last_status'] = 'running'
+        sync_state['last_run'] = datetime.now().isoformat()
+        try:
+            if _sync_function:
+                _sync_function(single_recipe=name)
+            else:
+                run_sync_background()
+            sync_state['last_status'] = 'success'
+        except Exception as e:
+            sync_state['last_status'] = 'error'
+            sync_state['last_error'] = str(e)
+        finally:
+            sync_state['running'] = False
+
+    thread = threading.Thread(target=run_single, daemon=True)
+    thread.start()
+    return jsonify({'success': True, 'message': f'Syncing {name}'})
+
+
 @app.route('/api/sync', methods=['POST'])
 def trigger_sync():
     if sync_state['running']:
@@ -398,14 +482,25 @@ def traktlists():
     config = load_config()
     d = config.get('traktlists', {}).get('directory', 'traktlists')
     p = os.path.join(BASE_DIR, d)
+    enabled_set = set(get_enabled_recipes())
     files = []
     if os.path.isdir(p):
         for f in sorted(os.listdir(p)):
             if f.endswith(('.txt', '.yaml', '.yml')):
                 with open(os.path.join(p, f), 'r', encoding='utf-8') as fh:
                     c = fh.read()
-                files.append({'name': f, 'content': c, 'lines': len(c.splitlines())})
-    return render_template('traktlists.html', files=files, directory=d)
+                # Derive collection name from file
+                col_name = os.path.splitext(f)[0]
+                try:
+                    import yaml as _yaml
+                    parsed = _yaml.safe_load(c)
+                    if isinstance(parsed, dict) and parsed.get('collection_name'):
+                        col_name = parsed['collection_name']
+                except Exception:
+                    pass
+                files.append({'name': f, 'content': c, 'lines': len(c.splitlines()),
+                              'collection_name': col_name, 'enabled': col_name in enabled_set})
+    return render_template('traktlists.html', files=files, directory=d, enabled_count=len([f for f in files if f['enabled']]))
 
 
 @app.route('/traktlists/save', methods=['POST'])
@@ -444,14 +539,25 @@ def mdblists():
     config = load_config()
     d = config.get('mdblists', {}).get('directory', 'mdblists')
     p = os.path.join(BASE_DIR, d)
+    enabled_set = set(get_enabled_recipes())
     files = []
     if os.path.isdir(p):
         for f in sorted(os.listdir(p)):
             if f.endswith(('.txt', '.yaml', '.yml')):
                 with open(os.path.join(p, f), 'r', encoding='utf-8') as fh:
                     c = fh.read()
-                files.append({'name': f, 'content': c, 'lines': len(c.splitlines())})
-    return render_template('mdblists.html', files=files, directory=d)
+                # Derive collection name from file
+                col_name = os.path.splitext(f)[0]
+                try:
+                    import yaml as _yaml
+                    parsed = _yaml.safe_load(c)
+                    if isinstance(parsed, dict) and parsed.get('collection_name'):
+                        col_name = parsed['collection_name']
+                except Exception:
+                    pass
+                files.append({'name': f, 'content': c, 'lines': len(c.splitlines()),
+                              'collection_name': col_name, 'enabled': col_name in enabled_set})
+    return render_template('mdblists.html', files=files, directory=d, enabled_count=len([f for f in files if f['enabled']]))
 
 
 @app.route('/mdblists/save', methods=['POST'])

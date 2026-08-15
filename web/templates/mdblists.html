@@ -3,35 +3,51 @@
 {% block content %}
 <h1 style="margin-bottom:20px">MDBLists</h1>
 <div class="card">
-    <p style="margin-bottom:15px;color:var(--text-dim)">
-        MDBList files in <code>{{ directory }}/</code>. Supports .txt and .yaml format.
-        YAML allows multiple MDBList URLs per collection, per-collection library selection, and custom names.
-    </p>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+        <p style="color:var(--text-dim);margin:0">
+            MDBList files in <code>{{ directory }}/</code>. Supports .txt and .yaml format.
+            YAML allows multiple MDBList URLs per collection, per-collection library selection, and custom names.
+            <br><span style="color:var(--green)">{{ enabled_count }}</span> of {{ files|length }} collections enabled.
+        </p>
+        <div style="display:flex;gap:8px">
+            <button class="btn btn-green btn-sm" onclick="toggleAllLists(true)">Enable All</button>
+            <button class="btn btn-secondary btn-sm" onclick="toggleAllLists(false)">Disable All</button>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:15px">
     <button class="btn btn-primary" onclick="showNew('txt')">+ New .txt List</button>
     <button class="btn btn-primary" onclick="showNew('yaml')">+ New .yaml List</button>
 </div>
 
 {% if files %}
 <div class="card">
-    <h2>Existing Lists ({{ files|length }})</h2>
-    <ul class="file-list">
+    <h2>Collections ({{ files|length }})</h2>
+    <ul class="recipe-list">
         {% for file in files %}
-        <li class="file-item">
-            <div class="file-item-header">
-                <span class="file-item-name">{{ file.name }}</span>
-                <div>
-                    <button class="btn btn-secondary btn-sm" onclick="editFile('{{ file.name }}',{{ loop.index0 }})">Edit</button>
-                    <button class="btn btn-secondary btn-sm" onclick="showLibSelect('{{ file.name }}')">Libraries</button>
-                    <button class="btn btn-secondary btn-sm" onclick="deleteFile('{{ file.name }}')" style="color:var(--red)">Delete</button>
-                </div>
+        <li class="recipe-item recipe-row" data-recipe-name="{{ file.collection_name|lower }}">
+            <div class="recipe-name" style="cursor:pointer" onclick="editFile('{{ file.name }}',{{ loop.index0 }})">
+                {{ file.collection_name }}
+                <span class="recipe-cat">{{ file.name }}</span>
             </div>
-            <div class="file-content" id="content-{{ loop.index0 }}">{{ file.content }}</div>
+            <div style="display:flex;gap:6px;align-items:center">
+                <button class="btn btn-secondary btn-sm" onclick="syncSingle('{{ file.collection_name|replace("'","\\'") }}')">Sync</button>
+                <button class="btn btn-secondary btn-sm" onclick="editFile('{{ file.name }}',{{ loop.index0 }})">Edit</button>
+                <button class="btn btn-secondary btn-sm" onclick="showLibSelect('{{ file.name }}')">Libraries</button>
+                <button class="btn btn-secondary btn-sm" onclick="deleteFile('{{ file.name }}')" style="color:var(--red)">Delete</button>
+                <label class="checkbox-label" style="display:flex;align-items:center;gap:4px;cursor:pointer">
+                    <input type="checkbox" {% if file.enabled %}checked{% endif %} onchange="toggleList('{{ file.collection_name|replace("'","\\'") }}',this.checked)">
+                    <span>Enabled</span>
+                </label>
+            </div>
+            <div class="file-content" id="content-{{ loop.index0 }}" style="display:none">{{ file.content }}</div>
         </li>
         {% endfor %}
     </ul>
 </div>
 {% else %}
-<div class="card"><p style="color:var(--text-dim)">No MDBList files found.</p></div>
+<div class="card"><p style="color:var(--text-dim)">No MDBList files found. Create one to get started.</p></div>
 {% endif %}
 
 <div class="modal" id="file-modal">
@@ -91,11 +107,13 @@ function showNew(format) {
 }
 
 function editFile(name, index) {
-    const content = document.getElementById('content-' + index).textContent;
+    const content = document.getElementById('content-' + index);
+    if (!content) return;
+    const text = content.textContent;
     document.getElementById('modal-title').textContent = 'Edit: ' + name;
     document.getElementById('file-name').value = name;
     document.getElementById('file-name').disabled = true;
-    document.getElementById('file-content').value = content;
+    document.getElementById('file-content').value = text;
     document.getElementById('file-modal').classList.add('active');
 }
 
@@ -126,6 +144,40 @@ async function deleteFile(name) {
         const data = await res.json();
         if (data.success) location.reload();
         else alert(data.error || 'Failed');
+    } catch(e) { alert('Error: ' + e); }
+}
+
+async function toggleList(name, enabled) {
+    try {
+        await fetch('/api/toggle_list', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, enabled})
+        });
+    } catch(e) { alert('Error: ' + e); }
+}
+
+async function toggleAllLists(enable) {
+    try {
+        const res = await fetch('/api/toggle_all_lists', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({type: 'mdblists', enable})
+        });
+        const data = await res.json();
+        if (data.success) location.reload();
+        else alert(data.error || 'Failed');
+    } catch(e) { alert('Error: ' + e); }
+}
+
+async function syncSingle(name) {
+    if (!confirm('Sync only "' + name + '" now?')) return;
+    try {
+        const res = await fetch('/api/sync_single_list', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name})
+        });
+        const data = await res.json();
+        if (data.success) { alert('Sync started for: ' + name); }
+        else { alert(data.error || 'Failed to start'); }
     } catch(e) { alert('Error: ' + e); }
 }
 

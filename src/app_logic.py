@@ -131,6 +131,18 @@ def main():
     from src.collection_recipes import RECIPES as _original_recipes
     if len(active_recipes) != len(_original_recipes) or any(r.get('name') != o.get('name') for r, o in zip(active_recipes, _original_recipes)):
         _enabled_names = set(r.get('name', '') for r in active_recipes)
+        # Also load enabled collection names from webui_state.json so that
+        # MDBList/Trakt list collections are included in the filter
+        try:
+            import json as _json
+            _state_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config', 'webui_state.json')
+            with open(_state_path, 'r') as _sf:
+                _state = _json.load(_sf)
+                _state_enabled = _state.get('enabled_recipes')
+                if _state_enabled is not None:
+                    _enabled_names = set(_state_enabled)
+        except Exception:
+            pass
 
     # Process Trakt lists from traktlists directory FIRST for testing
     try:
