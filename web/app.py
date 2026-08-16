@@ -210,49 +210,65 @@ def dashboard():
                            sync_state=sync_state, enabled_count=enabled_count, total_count=total_count)
 
 
+def _safe_int(val, default=0):
+    """Safely parse an integer from a form value."""
+    try:
+        return int(val) if val else default
+    except (ValueError, TypeError):
+        return default
+
+def _safe_float(val, default=0.5):
+    """Safely parse a float from a form value."""
+    try:
+        return float(val) if val else default
+    except (ValueError, TypeError):
+        return default
+
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():
     if request.method == 'POST':
-        config = load_config()
-        config.setdefault('tmdb', {})['api_key'] = request.form.get('tmdb_api_key', '')
-        config.setdefault('emby', {})['server_url'] = request.form.get('emby_server_url', '')
-        config.setdefault('emby', {})['api_key'] = request.form.get('emby_api_key', '')
-        config.setdefault('emby', {})['user_id'] = request.form.get('emby_user_id', '')
-        config.setdefault('trakt', {})['client_id'] = request.form.get('trakt_client_id', '')
-        config.setdefault('trakt', {})['client_secret'] = request.form.get('trakt_client_secret', '')
-        config.setdefault('trakt', {})['access_token'] = request.form.get('trakt_access_token', '')
-        config.setdefault('trakt', {})['username'] = request.form.get('trakt_username', 'me')
-        config.setdefault('mdblist', {})['api_key'] = request.form.get('mdblist_api_key', '')
-        config.setdefault('traktlists', {})['enabled'] = request.form.get('traktlists_enabled') == 'on'
-        config['traktlists']['directory'] = request.form.get('traktlists_directory', 'traktlists')
-        max_trakt = request.form.get('traktlists_max_items', '0')
-        config['traktlists']['max_items_per_collection'] = int(max_trakt) if max_trakt.isdigit() else 0
-        config.setdefault('mdblists', {})['enabled'] = request.form.get('mdblists_enabled') == 'on'
-        config['mdblists']['directory'] = request.form.get('mdblists_directory', 'mdblists')
-        max_mdb = request.form.get('mdblists_max_items', '0')
-        config['mdblists']['max_items_per_collection'] = int(max_mdb) if max_mdb.isdigit() else 0
-        config.setdefault('poster_settings', {})['enable_custom_posters'] = request.form.get('poster_enable') == 'on'
-        config['poster_settings']['template_name'] = request.form.get('poster_template', 'default.png')
-        tp = request.form.get('poster_text_position', '0.5')
-        config['poster_settings']['text_position'] = float(tp) if tp else 0.5
-        config['poster_settings']['text_color'] = [
-            int(request.form.get('text_color_r', 255)),
-            int(request.form.get('text_color_g', 255)),
-            int(request.form.get('text_color_b', 255))
-        ]
-        config['poster_settings']['bg_color'] = [
-            int(request.form.get('bg_color_r', 0)),
-            int(request.form.get('bg_color_g', 0)),
-            int(request.form.get('bg_color_b', 0)),
-            int(request.form.get('bg_color_a', 128))
-        ]
-        state = load_state()
-        si = request.form.get('sync_interval', '24')
-        state['sync_interval_hours'] = int(si) if si.isdigit() else 24
-        save_state(state)
-        if save_config(config):
-            return render_template('settings.html', config=config, state=state, saved=True)
-        return render_template('settings.html', config=config, state=state, error="Failed to save config")
+        try:
+            config = load_config()
+            config.setdefault('tmdb', {})['api_key'] = request.form.get('tmdb_api_key', '')
+            config.setdefault('emby', {})['server_url'] = request.form.get('emby_server_url', '')
+            config.setdefault('emby', {})['api_key'] = request.form.get('emby_api_key', '')
+            config.setdefault('emby', {})['user_id'] = request.form.get('emby_user_id', '')
+            config.setdefault('trakt', {})['client_id'] = request.form.get('trakt_client_id', '')
+            config.setdefault('trakt', {})['client_secret'] = request.form.get('trakt_client_secret', '')
+            config.setdefault('trakt', {})['access_token'] = request.form.get('trakt_access_token', '')
+            config.setdefault('trakt', {})['username'] = request.form.get('trakt_username', 'me')
+            config.setdefault('mdblist', {})['api_key'] = request.form.get('mdblist_api_key', '')
+            config.setdefault('traktlists', {})['enabled'] = request.form.get('traktlists_enabled') == 'on'
+            config['traktlists']['directory'] = request.form.get('traktlists_directory', 'traktlists')
+            config['traktlists']['max_items_per_collection'] = _safe_int(request.form.get('traktlists_max_items', '0'), 0)
+            config.setdefault('mdblists', {})['enabled'] = request.form.get('mdblists_enabled') == 'on'
+            config['mdblists']['directory'] = request.form.get('mdblists_directory', 'mdblists')
+            config['mdblists']['max_items_per_collection'] = _safe_int(request.form.get('mdblists_max_items', '0'), 0)
+            config.setdefault('poster_settings', {})['enable_custom_posters'] = request.form.get('poster_enable') == 'on'
+            config['poster_settings']['template_name'] = request.form.get('poster_template', 'default.png')
+            config['poster_settings']['text_position'] = _safe_float(request.form.get('poster_text_position', '0.5'), 0.5)
+            config['poster_settings']['text_color'] = [
+                _safe_int(request.form.get('text_color_r', 255), 255),
+                _safe_int(request.form.get('text_color_g', 255), 255),
+                _safe_int(request.form.get('text_color_b', 255), 255)
+            ]
+            config['poster_settings']['bg_color'] = [
+                _safe_int(request.form.get('bg_color_r', 0), 0),
+                _safe_int(request.form.get('bg_color_g', 0), 0),
+                _safe_int(request.form.get('bg_color_b', 0), 0),
+                _safe_int(request.form.get('bg_color_a', 128), 128)
+            ]
+            state = load_state()
+            state['sync_interval_hours'] = _safe_int(request.form.get('sync_interval', '24'), 24)
+            save_state(state)
+            if save_config(config):
+                return render_template('settings.html', config=config, state=state, saved=True)
+            return render_template('settings.html', config=config, state=state, error="Failed to save config")
+        except Exception as e:
+            logger.error(f"Error saving settings: {e}")
+            config = load_config()
+            state = load_state()
+            return render_template('settings.html', config=config, state=state, error=f"Error saving settings: {e}")
     config = load_config()
     state = load_state()
     return render_template('settings.html', config=config, state=state)
@@ -1138,6 +1154,9 @@ def collection_image_proxy(collection_id):
     if not emby_cfg.get('server_url') or not emby_cfg.get('api_key'):
         return jsonify({'error': 'Emby not configured'}), 400
     image_type = request.args.get('type', 'Primary')
+    # Validate image_type to prevent path traversal
+    if image_type not in ('Primary', 'Backdrop', 'Logo', 'Thumb', 'Banner', 'Art', 'Disc'):
+        return Response(b'', status=400, content_type='image/jpeg')
     try:
         import requests as _requests
         url = f"{emby_cfg['server_url'].rstrip('/')}/Items/{collection_id}/Images/{image_type}?api_key={emby_cfg['api_key']}"
