@@ -348,93 +348,92 @@ class EmbyClient(MediaServerClient):
     def update_collection_items(self, collection_id: str, item_ids: List[str]) -> bool:
         """
         Set the items for a given Emby collection.
+        Replaces all items: removes old items that are no longer in the list,
+        then adds the new items.
+
         Args:
             collection_id: The Emby collection ID.
             item_ids: List of Emby item IDs to include in the collection.
         Returns:
-            True if successful, False otherwise.
+            True if successful, False otherwise
         """
-        if not collection_id: # item_ids can be empty if we want to clear a collection
+        if not collection_id:
             logger.error("Error: Invalid collection_id")
             return False
-        
+
         if hasattr(self, '_temp_collections') and collection_id in self._temp_collections:
             collection_name = self._temp_collections[collection_id]
             logger.info(f"Cannot update items for pseudo-collection '{collection_name}'")
-            return True # Pretend success
-        
-        # 1. Add/Update items in the collection
-        # First, ensure we have no duplicate IDs which could cause issues
-        unique_item_ids = list(dict.fromkeys(item_ids))  # Remove duplicates
-        
+            return True  # Pretend success
+
+        # Remove duplicates
+        unique_item_ids = list(dict.fromkeys(item_ids))
+
         if len(unique_item_ids) < len(item_ids):
             logger.info(f"Removed {len(item_ids) - len(unique_item_ids)} duplicate item IDs from collection update")
-        
-        # Emby's /Collections/{Id}/Items endpoint replaces all items with the provided list.
-        # However, URLs have length limits (Error 414). For large collections, we need to batch the requests.
-        batch_size = 500  # Process items in batches to avoid URL length limits
-        
-        try:
-            logger.info(f"Setting {len(unique_item_ids)} items for collection {collection_id}...")
-            
-            if len(unique_item_ids) <= batch_size:
-                # Small collection - use single request
-                items_to_set_str = ",".join(unique_item_ids) if unique_item_ids else ""
-                add_items_url = f"{self.server_url}/Collections/{collection_id}/Items?api_key={self.api_key}&Ids={items_to_set_str}"
-                response = self.session.post(add_items_url, timeout=30)
-            else:
-                # Large collection - clear first, then add in batches
-                logger.info(f"Large collection detected ({len(unique_item_ids)} items). Using batch processing...")
-                
-                # First, clear the collection
-                clear_url = f"{self.server_url}/Collections/{collection_id}/Items?api_key={self.api_key}&Ids="
-                response = self.session.post(clear_url, timeout=30)
-                
-                if response.status_code != 204:
-                    logger.error(f"Failed to clear collection before batch update: {response.status_code}")
-                    return False
-                
-                # Then add items in batches using the add endpoint (not replace)
-                add_endpoint = f"{self.server_url}/Collections/{collection_id}/Items?api_key={self.api_key}"
-                
-                for i in range(0, len(unique_item_ids), batch_size):
-                    batch = unique_item_ids[i:i+batch_size]
-                    batch_str = ",".join(batch)
-                    batch_url = f"{add_endpoint}&Ids={batch_str}"
-                    
-                    logger.info(f"Adding batch {i//batch_size + 1}: items {i+1}-{min(i+len(batch), len(unique_item_ids))}")
-                    batch_response = self.session.post(batch_url, timeout=30)
-                    
-                    if batch_response.status_code != 204:
-                        logger.error(f"Failed to add batch {i//batch_size + 1}: {batch_response.status_code}")
-                        return False
-                
-                # Use the last response for the final status check
-                response = batch_response 
-            
-            if response.status_code == 204: # 204 No Content is success
-                logger.info(f"Successfully set items in collection {collection_id}.")
 
-                # Optional: Trigger a refresh on the collection
-                try:
-                    refresh_url = f"{self.server_url}/Items/{collection_id}/Refresh?api_key={self.api_key}"
-                    refresh_response = self.session.post(refresh_url, timeout=30)
-                    if refresh_response.status_code in [200, 204]:
-                        logger.info(f"Successfully sent refresh command for collection {collection_id}.")
-                    else:
-                        logger.warning(f"Failed to send refresh command for collection {collection_id}: {refresh_response.status_code}")
-                except Exception as e_refresh:
-                    logger.warning(f"Error sending refresh command: {e_refresh}")
-                
-                return True # Overall success if items were added, even if metadata tweaks had issues
+        batch_size = 500  # Process items in batches to avoid URL length limits
+
+        try:
+            logger.info(f"Updating {len(unique_item_ids)} items for collection {collection_id}...")
+
+            # STEP 1: Get current items in the collection
+            current_item_ids = set()
+            try:
+                items_endpoint = f"/Items?ParentId={collection_id}&api_key={self.api_key}&Fields=Id"
+                items_data = self._make_api_request('GET', items_endpoint)
+                if items_data and 'Items' in items_data:
+                    current_item_ids = set(item.get('Id', '') for item in items_data['Items'] if item.get('Id'))
+            except Exception as e:
+                logger.warning(f"Could not fetch current collection items: {e}")
+
+            # STEP 2: Remove items that are no longer in the new list
+            new_item_set = set(unique_item_ids)
+            items_to_remove = current_item_ids - new_item_set
+            if items_to_remove:
+                logger.info(f"Removing {len(items_to_remove)} old items from collection {collection_id}")
+                remove_list = list(items_to_remove)
+                for i in range(0, len(remove_list), batch_size):
+                    batch = remove_list[i:i+batch_size]
+                    batch_str = ",".join(batch)
+                    remove_url = f"{self.server_url}/Collections/{collection_id}/Items?api_key={self.api_key}&Ids={batch_str}"
+                    remove_response = self.session.delete(remove_url, timeout=30)
+                    if remove_response.status_code not in [200, 204]:
+                        logger.warning(f"Failed to remove batch {i//batch_size + 1}: {remove_response.status_code}")
             else:
-                logger.error(f"Failed to set items in collection: {response.status_code} - {response.text[:200]}")
-                return False
+                logger.info(f"No items to remove from collection {collection_id}")
+
+            # STEP 3: Add new items that aren't already in the collection
+            items_to_add = [iid for iid in unique_item_ids if iid not in current_item_ids]
+            if items_to_add:
+                logger.info(f"Adding {len(items_to_add)} new items to collection {collection_id}")
+                for i in range(0, len(items_to_add), batch_size):
+                    batch = items_to_add[i:i+batch_size]
+                    batch_str = ",".join(batch)
+                    add_url = f"{self.server_url}/Collections/{collection_id}/Items?api_key={self.api_key}&Ids={batch_str}"
+                    add_response = self.session.post(add_url, timeout=30)
+                    if add_response.status_code not in [200, 204]:
+                        logger.error(f"Failed to add batch {i//batch_size + 1}: {add_response.status_code}")
+                        return False
+            else:
+                logger.info(f"No new items to add to collection {collection_id}")
+
+            # STEP 4: Trigger a refresh on the collection
+            try:
+                refresh_url = f"{self.server_url}/Items/{collection_id}/Refresh?api_key={self.api_key}"
+                refresh_response = self.session.post(refresh_url, timeout=30)
+                if refresh_response.status_code in [200, 204]:
+                    logger.info(f"Successfully sent refresh command for collection {collection_id}.")
+                else:
+                    logger.warning(f"Failed to send refresh command for collection {collection_id}: {refresh_response.status_code}")
+            except Exception as e_refresh:
+                logger.warning(f"Error sending refresh command: {e_refresh}")
+
+            return True
         except Exception as e:
             logger.error(f"Error updating collection items: {e}")
             return False
 
-    
     def update_collection_artwork(self, collection_id: str, poster_url: Optional[str]=None, backdrop_url: Optional[str]=None, category_id: Optional[int]=None) -> bool:
         """
         Update artwork for an Emby collection using external image URLs.
