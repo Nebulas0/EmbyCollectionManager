@@ -759,10 +759,29 @@ def main():
                 if ov.get('custom_name'):
                     all_managed_names.add(ov['custom_name'])
 
+            # Build a mapping from custom_name -> original_name so we can check
+            # if a collection with a custom_name override is actually enabled
+            custom_to_original = {}
+            for orig_name, ov in recipe_overrides.items():
+                if ov.get('custom_name'):
+                    custom_to_original[ov['custom_name']] = orig_name
+
             # Find managed collections that are NOT enabled and remove them
+            # A collection is "disabled" if:
+            # 1. It's in all_managed_names (we manage it)
+            # 2. Its name is not in _enabled_names (not enabled by original name)
+            # 3. If it has a custom_name, the original name is not in _enabled_names
             removed_count = 0
             for name, cid in emby_collections.items():
-                if name in all_managed_names and name not in _enabled_names:
+                if name not in all_managed_names:
+                    continue  # Not a managed collection
+                # Check if this collection is enabled
+                # It could be enabled by its original name or by a custom_name override
+                is_enabled = name in _enabled_names
+                if not is_enabled and name in custom_to_original:
+                    # This is a custom_name - check if the original is enabled
+                    is_enabled = custom_to_original[name] in _enabled_names
+                if not is_enabled:
                     logger.info(f"Removing disabled collection '{name}' (ID: {cid}) from Emby")
                     try:
                         del_url = f"{emby.server_url}/Items/{cid}?api_key={emby.api_key}"
@@ -788,7 +807,7 @@ def main():
         
         for list_info in custom_lists:
             try:
-                process_custom_list(list_info, tmdb, trakt, emby)
+                process_custom_list(list_info, tmdb, trakt, emby, config)
             except Exception as e:
                 list_name = list_info.get('name', 'Unknown')
                 logger.error(f"Error processing custom list '{list_name}': {e}")
@@ -901,7 +920,7 @@ def load_custom_lists(file_path: str) -> List[Dict[str, Any]]:
         logger.error(f"Failed to load custom lists from '{file_path}': {e}")
         return []
 
-def process_custom_list(list_info: Dict[str, Any], tmdb_client: TmdbClient, trakt_client: TraktClient = None, emby_client=None) -> None:
+def process_custom_list(list_info: Dict[str, Any], tmdb_client: TmdbClient, trakt_client: TraktClient = None, emby_client=None, config: Dict[str, Any] = None) -> None:
     """
     Process a custom list definition and create/update a collection.
     Supports TMDb IDs, Trakt list references, and mixed content.
@@ -911,6 +930,7 @@ def process_custom_list(list_info: Dict[str, Any], tmdb_client: TmdbClient, trak
         tmdb_client: TMDb client instance
         trakt_client: Trakt client instance (optional)
         emby_client: Emby client instance
+        config: Configuration dictionary
     """
     if not emby_client:
         logger.error("Custom lists feature requires a media server client")

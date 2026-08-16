@@ -185,6 +185,15 @@ def sync_scheduler(config_path="config/config.yaml"):
         except Exception:
             return 24
 
+    def is_sync_running():
+        """Check if a sync is already running (via web UI state)."""
+        try:
+            from web.app import sync_state, sync_lock
+            with sync_lock:
+                return sync_state.get('running', False)
+        except Exception:
+            return False
+
     # Track next sync time
     next_sync = datetime.now()
     _update_next_sync(next_sync)
@@ -194,7 +203,11 @@ def sync_scheduler(config_path="config/config.yaml"):
         start_time = datetime.now()
         next_sync = start_time + timedelta(hours=interval_hours)
         _update_next_sync(next_sync)
-        run_sync_once(config_path)
+        # Skip if a sync is already running (e.g. user triggered one from UI)
+        if is_sync_running():
+            logger.info("Scheduler: sync already running, skipping scheduled run")
+        else:
+            run_sync_once(config_path)
         sleep_duration = (next_sync - datetime.now()).total_seconds()
         if sleep_duration < 0:
             sleep_duration = 0
