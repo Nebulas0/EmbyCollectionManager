@@ -75,24 +75,24 @@ COLLECTION_RECIPES: List[Dict[str, Any]] = [
     {'name': 'Amazon Prime Originals', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_companies': '20580', 'sort_by': 'popularity.desc', 'vote_count.gte': 50}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
     
     # HBO Max Collections
-    {'name': 'Popular on HBO Max', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_watch_providers': '384', 'watch_region': 'US', 'sort_by': 'popularity.desc', 'vote_count.gte': 100}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
-    {'name': 'Top Rated on HBO Max', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_watch_providers': '384', 'watch_region': 'US', 'sort_by': 'vote_average.desc', 'vote_count.gte': 200}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
-    {'name': 'HBO Max Originals', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_companies': '174', 'with_watch_providers': '384', 'watch_region': 'US', 'sort_by': 'popularity.desc'}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
+    {'name': 'Popular on HBO Max', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_watch_providers': '1899', 'watch_region': 'US', 'sort_by': 'popularity.desc', 'vote_count.gte': 100}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
+    {'name': 'Top Rated on HBO Max', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_watch_providers': '1899', 'watch_region': 'US', 'sort_by': 'vote_average.desc', 'vote_count.gte': 200}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
+    {'name': 'HBO Max Originals', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_companies': '174', 'with_watch_providers': '1899', 'watch_region': 'US', 'sort_by': 'popularity.desc'}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
     
     # Apple TV+ Collections
     {'name': 'Popular on Apple TV+', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_watch_providers': '350', 'watch_region': 'US', 'sort_by': 'popularity.desc', 'vote_count.gte': 50}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
     {'name': 'Top Rated on Apple TV+', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_watch_providers': '350', 'watch_region': 'US', 'sort_by': 'vote_average.desc', 'vote_count.gte': 100}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
-    {'name': 'Apple TV+ Originals', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_companies': '152952', 'sort_by': 'popularity.desc'}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
+    {'name': 'Apple TV+ Originals', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_companies': '194232', 'sort_by': 'popularity.desc'}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
     
     # Hulu Collections
     {'name': 'Popular on Hulu', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_watch_providers': '15', 'watch_region': 'US', 'sort_by': 'popularity.desc', 'vote_count.gte': 100}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
     {'name': 'Top Rated on Hulu', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_watch_providers': '15', 'watch_region': 'US', 'sort_by': 'vote_average.desc', 'vote_count.gte': 200}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
-    {'name': 'Hulu Originals', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_companies': '3364', 'sort_by': 'popularity.desc'}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
+    {'name': 'Hulu Originals', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_watch_providers': '15', 'watch_region': 'US', 'sort_by': 'popularity.desc', 'vote_count.gte': 50}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
     
     # Paramount+ Collections
-    {'name': 'Popular on Paramount+', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_watch_providers': '531', 'watch_region': 'US', 'sort_by': 'popularity.desc', 'vote_count.gte': 50}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
-    {'name': 'Top Rated on Paramount+', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_watch_providers': '531', 'watch_region': 'US', 'sort_by': 'vote_average.desc', 'vote_count.gte': 100}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
-    {'name': 'Paramount+ Originals', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_companies': '4', 'with_watch_providers': '531', 'watch_region': 'US', 'sort_by': 'popularity.desc'}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
+    {'name': 'Popular on Paramount+', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_watch_providers': '2303|2616', 'watch_region': 'US', 'sort_by': 'popularity.desc', 'vote_count.gte': 50}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
+    {'name': 'Top Rated on Paramount+', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_watch_providers': '2303|2616', 'watch_region': 'US', 'sort_by': 'vote_average.desc', 'vote_count.gte': 100}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
+    {'name': 'Paramount+ Originals', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_watch_providers': '2303|2616', 'watch_region': 'US', 'sort_by': 'popularity.desc', 'vote_count.gte': 50}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
     
     # Peacock Collections
     {'name': 'Popular on Peacock', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_watch_providers': '386', 'watch_region': 'US', 'sort_by': 'popularity.desc', 'vote_count.gte': 50}, 'item_limit': 40, 'target_servers': ['emby'], 'category_id': 2},
@@ -642,7 +642,7 @@ COLLECTION_RECIPES: List[Dict[str, Any]] = [
     {'name': 'StudioCanal Films', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_companies': '694', 'sort_by': 'popularity.desc', 'vote_count.gte': 20}, 'item_limit': 30, 'target_servers': ['emby'], 'category_id': 10},
     {'name': 'Netflix Films', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_companies': '12177', 'sort_by': 'popularity.desc', 'vote_count.gte': 20}, 'item_limit': 30, 'target_servers': ['emby'], 'category_id': 10},
     {'name': 'Amazon Studios Films', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_companies': '34982', 'sort_by': 'popularity.desc', 'vote_count.gte': 20}, 'item_limit': 30, 'target_servers': ['emby'], 'category_id': 10},
-    {'name': 'Apple Studios Films', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_companies': '152952', 'sort_by': 'popularity.desc', 'vote_count.gte': 20}, 'item_limit': 30, 'target_servers': ['emby'], 'category_id': 10},
+    {'name': 'Apple Studios Films', 'source_type': 'tmdb_discover_individual_movies', 'tmdb_discover_params': {'with_companies': '194232', 'sort_by': 'popularity.desc', 'vote_count.gte': 20}, 'item_limit': 30, 'target_servers': ['emby'], 'category_id': 10},
     
     
     #############################################
