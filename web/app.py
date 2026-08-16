@@ -407,6 +407,14 @@ def sync_single_list():
         sync_state['last_status'] = 'running'
         sync_state['last_run'] = datetime.now().isoformat()
         sync_state['progress'] = None
+        # Set cancel event and progress callback on app_logic so
+        # single-list sync also supports cancel and progress reporting
+        try:
+            import src.app_logic as app_logic_module
+            app_logic_module._cancel_event = sync_cancel
+            app_logic_module._progress_callback = _update_progress
+        except Exception:
+            pass
         try:
             if _sync_function:
                 _sync_function(single_recipe=name)
@@ -420,6 +428,12 @@ def sync_single_list():
             sync_state['last_status'] = 'error'
             sync_state['last_error'] = str(e)
         finally:
+            try:
+                import src.app_logic as app_logic_module
+                app_logic_module._cancel_event = None
+                app_logic_module._progress_callback = None
+            except Exception:
+                pass
             with sync_lock:
                 sync_state['running'] = False
                 sync_state['progress'] = None
@@ -565,7 +579,9 @@ def create_from_url():
             return jsonify({'error': f'Failed to fetch MDBList info: {e}'}), 500
 
         # Create YAML file
-        safe_name = collection_name.replace('/', '-').replace(' ', '_')
+        safe_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', collection_name)
+        if not safe_name or safe_name == '_':
+            safe_name = 'untitled'
         filename = f"{safe_name}.yaml"
         filepath = os.path.join(p, filename)
         # Don't overwrite existing files
@@ -608,7 +624,9 @@ def create_from_url():
             list_name = list_slug.replace('-', ' ').title()
         collection_name = custom_name or list_name
 
-        safe_name = collection_name.replace('/', '-').replace(' ', '_')
+        safe_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', collection_name)
+        if not safe_name or safe_name == '_':
+            safe_name = 'untitled'
         filename = f"{safe_name}.yaml"
         filepath = os.path.join(p, filename)
         if os.path.exists(filepath):
@@ -719,8 +737,9 @@ def cleanup_collections():
 
 @app.route('/api/sync', methods=['POST'])
 def trigger_sync():
-    if sync_state['running']:
-        return jsonify({'error': 'Sync already running'}), 409
+    with sync_lock:
+        if sync_state['running']:
+            return jsonify({'error': 'Sync already running'}), 409
     thread = threading.Thread(target=run_sync_background, daemon=True)
     sync_state['thread'] = thread
     thread.start()
@@ -778,11 +797,16 @@ def test_tmdb():
 @app.route('/api/test_trakt', methods=['POST'])
 def test_trakt():
     data = request.json
+    client_id = data.get('client_id', '').strip()
+    if not client_id:
+        return jsonify({'success': False, 'error': 'No Trakt Client ID provided'}), 200
     try:
         from src.trakt_client import TraktClient
-        trakt = TraktClient(client_id=data.get('client_id', ''))
+        trakt = TraktClient(client_id=client_id)
         trending = trakt.get_trending_lists(1)
-        return jsonify({'success': True, 'list_count': len(trending) if trending else 0})
+        if trending is None:
+            return jsonify({'success': False, 'error': 'Trakt API returned an error. Check your Client ID.'}), 200
+        return jsonify({'success': True, 'list_count': len(trending)})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -790,11 +814,16 @@ def test_trakt():
 @app.route('/api/test_mdblist', methods=['POST'])
 def test_mdblist():
     data = request.json
+    api_key = data.get('api_key', '').strip()
+    if not api_key:
+        return jsonify({'success': False, 'error': 'No MDBList API key provided'}), 200
     try:
         from src.mdblist_client import MDBListClient
-        client = MDBListClient(api_key=data.get('api_key', ''))
+        client = MDBListClient(api_key=api_key)
         result = client._make_request('/user/')
-        return jsonify({'success': True, 'data': result is not None})
+        if result is None:
+            return jsonify({'success': False, 'error': 'MDBList API returned an error. Check your API key.'}), 200
+        return jsonify({'success': True, 'data': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1313,29 +1342,48 @@ def sync_single():
     recipe_name = data.get('recipe_name')
     if not recipe_name:
         return jsonify({'error': 'No recipe_name'}), 400
-    if sync_state['running']:
-        return jsonify({'error': 'A sync is already running'}), 409
-
-    def run_single():
-        global sync_state
+    with sync_lock:
+        if sync_state['running']:
+            return jsonify({'error': 'A sync is already running'}), 409
         sync_state['running'] = True
+    sync_cancel.clear()
+
+    def run_single_recipe():
         sync_state['last_error'] = None
         sync_state['last_status'] = 'running'
         sync_state['last_run'] = datetime.now().isoformat()
+        sync_state['progress'] = None
+        # Set cancel event and progress callback on app_logic
+        try:
+            import src.app_logic as app_logic_module
+            app_logic_module._cancel_event = sync_cancel
+            app_logic_module._progress_callback = _update_progress
+        except Exception:
+            pass
         try:
             if _sync_function:
                 _sync_function(single_recipe=recipe_name)
             else:
-                # Fallback: use the web app's own sync
                 run_sync_background()
-            sync_state['last_status'] = 'success'
+            if sync_cancel.is_set():
+                sync_state['last_status'] = 'cancelled'
+            else:
+                sync_state['last_status'] = 'success'
         except Exception as e:
             sync_state['last_status'] = 'error'
             sync_state['last_error'] = str(e)
         finally:
-            sync_state['running'] = False
+            try:
+                import src.app_logic as app_logic_module
+                app_logic_module._cancel_event = None
+                app_logic_module._progress_callback = None
+            except Exception:
+                pass
+            with sync_lock:
+                sync_state['running'] = False
+                sync_state['progress'] = None
 
-    thread = threading.Thread(target=run_single, daemon=True)
+    thread = threading.Thread(target=run_single_recipe, daemon=True)
     thread.start()
     return jsonify({'success': True, 'message': f'Syncing {recipe_name}'})
 

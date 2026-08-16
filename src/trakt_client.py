@@ -358,6 +358,8 @@ class TraktClient:
         """
         params = {'limit': limit}
         response = self._make_request('GET', '/lists/trending', params=params)
+        if response is None:
+            return None  # API error - distinguish from empty list
         return response if response else []
     
     def search_lists(self, query: str, limit: int = 20) -> List[Dict]:
