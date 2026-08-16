@@ -1361,7 +1361,9 @@ def collection_image_proxy(collection_id):
         url = f"{emby_cfg['server_url'].rstrip('/')}/Items/{collection_id}/Images/{image_type}?api_key={emby_cfg['api_key']}"
         resp = _requests.get(url, timeout=15)
         if resp.status_code == 200 and resp.content:
-            return Response(resp.content, content_type=resp.headers.get('Content-Type', 'image/jpeg'))
+            r = Response(resp.content, content_type=resp.headers.get('Content-Type', 'image/jpeg'))
+            r.headers['Cache-Control'] = 'public, max-age=60'
+            return r
         else:
             return Response(b'', status=404, content_type='image/jpeg')
     except Exception as e:
@@ -1386,11 +1388,16 @@ def artwork():
         )
         collections = emby.get_all_collections()
         # Build image URLs that proxy through Flask (so the browser can access them
-        # regardless of the internal Emby server URL)
+        # regardless of the internal Emby server URL). Include the ImageTag as a
+        # cache-busting parameter so the browser fetches a fresh image when Emby
+        # updates the artwork (e.g. after a sync).
         for col in collections:
             col_id = col.get('Id', '')
-            col['poster_url'] = f"/api/collection_image_proxy/{col_id}?type=Primary"
-            col['backdrop_url'] = f"/api/collection_image_proxy/{col_id}?type=Backdrop"
+            image_tags = col.get('ImageTags', {}) or {}
+            primary_tag = image_tags.get('Primary', '')
+            backdrop_tag = image_tags.get('Backdrop', '')
+            col['poster_url'] = f"/api/collection_image_proxy/{col_id}?type=Primary&tag={primary_tag}"
+            col['backdrop_url'] = f"/api/collection_image_proxy/{col_id}?type=Backdrop&tag={backdrop_tag}"
         return render_template('artwork.html', collections=collections, error=None)
     except Exception as e:
         return render_template('artwork.html', collections=[], error=str(e))
