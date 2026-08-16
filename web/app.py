@@ -224,6 +224,12 @@ def _safe_float(val, default=0.5):
     except (ValueError, TypeError):
         return default
 
+_VALID_IMAGE_TYPES = ('Primary', 'Backdrop', 'Logo', 'Thumb', 'Banner', 'Art', 'Disc')
+
+def _valid_image_type(image_type):
+    """Validate image_type to prevent path traversal."""
+    return image_type if image_type in _VALID_IMAGE_TYPES else None
+
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():
     if request.method == 'POST':
@@ -1202,14 +1208,47 @@ def list_duplicates():
 
 @app.route('/api/recipe_duplicate_delete', methods=['POST'])
 def delete_duplicate():
-    """Delete a duplicate recipe by index."""
+    """Delete a duplicate recipe by index or new_name.
+    Also cleans up orphaned enabled state and overrides."""
     data = request.json
     index = data.get('index')
-    if index is None:
-        return jsonify({'error': 'No index'}), 400
+    new_name = data.get('new_name')
+    if index is None and not new_name:
+        return jsonify({'error': 'No index or new_name'}), 400
     from src.recipe_override import RecipeOverrideManager
     mgr = RecipeOverrideManager(BASE_DIR)
-    mgr.delete_duplicate(int(index))
+    # Find the duplicate's new_name for cleanup
+    duplicates = mgr.get_duplicates()
+    dup_new_name = None
+    if index is not None:
+        idx = int(index)
+        if 0 <= idx < len(duplicates):
+            dup_new_name = duplicates[idx].get('new_name')
+            mgr.delete_duplicate(idx)
+        else:
+            return jsonify({'error': 'Invalid index'}), 400
+    else:
+        # Find by new_name
+        for i, dup in enumerate(duplicates):
+            if dup.get('new_name') == new_name:
+                dup_new_name = dup.get('new_name')
+                mgr.delete_duplicate(i)
+                break
+        if not dup_new_name:
+            return jsonify({'error': 'Duplicate not found'}), 404
+    # Clean up orphaned enabled state
+    if dup_new_name:
+        state = load_state()
+        cur = set(state.get('enabled_recipes', []))
+        if dup_new_name in cur:
+            cur.discard(dup_new_name)
+            state['enabled_recipes'] = list(cur)
+            save_state(state)
+        # Clean up any override for the duplicate's new_name
+        try:
+            mgr.delete_override(dup_new_name)
+        except Exception:
+            pass
     return jsonify({'success': True})
 
 
@@ -1223,9 +1262,8 @@ def collection_image_proxy(collection_id):
     emby_cfg = config.get('emby', {})
     if not emby_cfg.get('server_url') or not emby_cfg.get('api_key'):
         return jsonify({'error': 'Emby not configured'}), 400
-    image_type = request.args.get('type', 'Primary')
-    # Validate image_type to prevent path traversal
-    if image_type not in ('Primary', 'Backdrop', 'Logo', 'Thumb', 'Banner', 'Art', 'Disc'):
+    image_type = _valid_image_type(request.args.get('type', 'Primary'))
+    if not image_type:
         return Response(b'', status=400, content_type='image/jpeg')
     try:
         import requests as _requests
@@ -1272,9 +1310,11 @@ def get_collection_image():
     """Get current collection image as base64 for preview."""
     data = request.json
     collection_id = data.get('collection_id')
-    image_type = data.get('image_type', 'Primary')
+    image_type = _valid_image_type(data.get('image_type', 'Primary'))
     if not collection_id:
         return jsonify({'error': 'No collection_id'}), 400
+    if not image_type:
+        return jsonify({'error': 'Invalid image type'}), 400
     try:
         config = load_config()
         emby_cfg = config.get('emby', {})
@@ -1295,7 +1335,9 @@ def get_collection_image():
 def upload_image():
     """Upload a custom image for a collection."""
     collection_id = request.form.get('collection_id')
-    image_type = request.form.get('image_type', 'Primary')
+    image_type = _valid_image_type(request.form.get('image_type', 'Primary'))
+    if not image_type:
+        return jsonify({'error': 'Invalid image type'}), 400
     if 'file' not in request.files or not collection_id:
         return jsonify({'error': 'No file or collection_id'}), 400
     file = request.files['file']
@@ -1338,8 +1380,11 @@ def reset_image():
     """Reset a collection image to default (delete custom image)."""
     data = request.json
     collection_id = data.get('collection_id')
-    image_type = data.get('image_type', 'Primary')
+    image_type = _valid_image_type(data.get('image_type', 'Primary'))
     if not collection_id:
+        return jsonify({'error': 'No collection_id'}), 400
+    if not image_type:
+        return jsonify({'error': 'Invalid image type'}), 400
         return jsonify({'error': 'No collection_id'}), 400
     try:
         config = load_config()
@@ -1612,7 +1657,11 @@ def preview_collection(recipe_name):
 
         if source_type in ('tmdb_discover', 'tmdb_discover_individual_movies'):
             params = recipe.get('tmdb_discover_params', {})
-            movies = tmdb.discover_movies(params, item_limit)
+            import math as _math
+            page_limit = _math.ceil(item_limit / 20) if item_limit else 1
+            movies = tmdb.discover_movies(params, page_limit)
+            if item_limit and len(movies) > item_limit:
+                movies = movies[:item_limit]
             tmdb_ids = [m['id'] for m in movies]
             movie_titles = [{'id': m['id'], 'title': m.get('title', ''), 'year': m.get('release_date', '')[:4]} for m in movies]
         elif source_type in ('tmdb_collection', 'tmdb_series_collection'):

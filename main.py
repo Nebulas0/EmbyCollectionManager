@@ -220,6 +220,20 @@ def sync_scheduler(config_path="config/config.yaml"):
                 pass
             try:
                 run_sync_once(config_path)
+                try:
+                    from web.app import sync_state, sync_lock
+                    with sync_lock:
+                        sync_state['last_status'] = 'success'
+                except Exception:
+                    pass
+            except Exception as e:
+                try:
+                    from web.app import sync_state, sync_lock
+                    with sync_lock:
+                        sync_state['last_status'] = 'error'
+                        sync_state['last_error'] = str(e)
+                except Exception:
+                    pass
             finally:
                 try:
                     from web.app import sync_state, sync_lock

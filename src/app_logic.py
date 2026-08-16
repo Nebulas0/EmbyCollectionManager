@@ -539,7 +539,14 @@ def main():
                     continue
                     
                 logger.info(f"Discovering movies using: {tmdb_discover_params}")
-                discovered_movies = tmdb.discover_movies(tmdb_discover_params, item_limit)
+                # Convert item_limit (number of movies) to page_limit (number of pages)
+                # TMDb API returns 20 movies per page
+                import math as _math
+                page_limit = _math.ceil(item_limit / 20) if item_limit else 1
+                discovered_movies = tmdb.discover_movies(tmdb_discover_params, page_limit)
+                # Truncate to item_limit
+                if item_limit and len(discovered_movies) > item_limit:
+                    discovered_movies = discovered_movies[:item_limit]
                 tmdb_ids = [movie['id'] for movie in discovered_movies]
             
             # Trakt-based source types
