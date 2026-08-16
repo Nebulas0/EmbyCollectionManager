@@ -31,6 +31,16 @@ class MDBListClient:
         self.session.headers.update({
             'User-Agent': 'Emby Collection Manager/1.0'
         })
+
+    def close(self):
+        """Close the HTTP session and release connection pool resources."""
+        try:
+            self.session.close()
+        except Exception:
+            pass
+
+    def __del__(self):
+        self.close()
         
         # Rate limiting
         self.last_request_time = 0

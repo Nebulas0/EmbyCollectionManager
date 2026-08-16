@@ -34,6 +34,16 @@ class TraktClient:
             'trakt-api-version': self.API_VERSION,
             'trakt-api-key': self.client_id
         })
+
+    def close(self):
+        """Close the HTTP session and release connection pool resources."""
+        try:
+            self.session.close()
+        except Exception:
+            pass
+
+    def __del__(self):
+        self.close()
         
         # Add authorization header if access token is available
         if self.access_token:
