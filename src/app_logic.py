@@ -202,9 +202,12 @@ def main():
     # For now, count active_recipes + duplicates
     _recipe_count = len(active_recipes)
     for dup in recipe_duplicates:
-        orig_name = dup.get('original_name', '')
-        if any(r.get('name') == orig_name for r in active_recipes):
-            _recipe_count += 1
+        dup_new_name = dup.get('new_name', '')
+        # Count duplicates that would be processed
+        if _enabled_names is None or dup_new_name in _enabled_names:
+            orig_name = dup.get('original_name', '')
+            if any(r.get('name') == orig_name for r in _original_recipes):
+                _recipe_count += 1
     _global_progress_total = len(_trakt_collections) + len(_mdblist_collections) + _recipe_count
 
     # Process Trakt lists from traktlists directory FIRST for testing
@@ -471,17 +474,25 @@ def main():
     effective_recipes = list(active_recipes)
     # Update global progress total with actual effective recipe count
     for dup in recipe_duplicates:
-        # Find the original recipe
+        # Find the original recipe in _original_recipes (not just active_recipes)
+        # so duplicates work even when the original is disabled
         orig_name = dup.get('original_name', '')
-        orig_recipe = next((r for r in active_recipes if r.get('name') == orig_name), None)
+        dup_new_name = dup.get('new_name', orig_name + ' (Copy)')
+        # Check if this duplicate is enabled (when filtering is active)
+        if _enabled_names is not None and dup_new_name not in _enabled_names:
+            logger.info(f"Skipping duplicate recipe '{dup_new_name}' (not in enabled recipes)")
+            continue
+        orig_recipe = next((r for r in _original_recipes if r.get('name') == orig_name), None)
         if orig_recipe:
             # Create a copy with the new name
             dup_recipe = dict(orig_recipe)
-            dup_recipe['name'] = dup.get('new_name', orig_name + ' (Copy)')
+            dup_recipe['name'] = dup_new_name
             dup_recipe['_is_duplicate'] = True
             dup_recipe['_duplicate_config'] = dup
             effective_recipes.append(dup_recipe)
             logger.info(f"Added duplicate recipe: '{dup_recipe['name']}' based on '{orig_name}'")
+        else:
+            logger.warning(f"Could not find original recipe '{orig_name}' for duplicate '{dup_new_name}'")
     
     # Recalculate global progress total with effective recipes
     _global_progress_total = len(_trakt_collections) + len(_mdblist_collections) + len(effective_recipes)

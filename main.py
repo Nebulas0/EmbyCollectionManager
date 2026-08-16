@@ -131,9 +131,13 @@ def run_sync_once(config_path="config/config.yaml", single_recipe=None):
 
         old_argv = sys.argv
         sys.argv = ['app_logic', '--config', config_path, '--targets', sync_target]
+        was_cancelled = False
         try:
             app_main()
             collections_processed = len(app_logic.RECIPES)
+            # Check if the sync was cancelled
+            if app_logic._cancel_event is not None and app_logic._cancel_event.is_set():
+                was_cancelled = True
         finally:
             sys.argv = old_argv
             app_logic.RECIPES = original_recipes
@@ -142,17 +146,27 @@ def run_sync_once(config_path="config/config.yaml", single_recipe=None):
             app_logic._progress_callback = None
 
         duration = str(datetime.now() - start_time).split('.')[0]
-        logger.info(f"Sync completed successfully in {duration}")
-
-        history.add_entry({
-            'timestamp': start_iso,
-            'duration': duration,
-            'status': 'success',
-            'collections': collections_processed,
-            'errors': error_count,
-            'single_recipe': single_recipe,
-        })
-        notifier.notify_sync_success(duration, collections_processed, error_count)
+        if was_cancelled:
+            logger.info(f"Sync cancelled after {duration}")
+            history.add_entry({
+                'timestamp': start_iso,
+                'duration': duration,
+                'status': 'cancelled',
+                'collections': collections_processed,
+                'errors': error_count,
+                'single_recipe': single_recipe,
+            })
+        else:
+            logger.info(f"Sync completed successfully in {duration}")
+            history.add_entry({
+                'timestamp': start_iso,
+                'duration': duration,
+                'status': 'success',
+                'collections': collections_processed,
+                'errors': error_count,
+                'single_recipe': single_recipe,
+            })
+            notifier.notify_sync_success(duration, collections_processed, error_count)
 
     except Exception as e:
         duration = str(datetime.now() - start_time).split('.')[0]

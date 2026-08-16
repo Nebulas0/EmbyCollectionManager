@@ -20,6 +20,16 @@ class MediaServerClient:
             'Accept': 'application/json'
         })
 
+    def close(self):
+        """Close the HTTP session and release connection pool resources."""
+        try:
+            self.session.close()
+        except Exception:
+            pass
+
+    def __del__(self):
+        self.close()
+
     def _make_api_request(self, method: str, endpoint: str, **kwargs):
         """
         Helper for making API requests with error handling.

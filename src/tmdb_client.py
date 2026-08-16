@@ -14,6 +14,16 @@ class TmdbClient:
         if self.is_v4_token:
             self.session.headers.update({"Authorization": f"Bearer {api_key}"})
 
+    def close(self):
+        """Close the HTTP session and release connection pool resources."""
+        try:
+            self.session.close()
+        except Exception:
+            pass
+
+    def __del__(self):
+        self.close()
+
     def _get_params(self, extra_params=None):
         """Build request params, using api_key query param only for v3 keys."""
         params = dict(extra_params) if extra_params else {}
