@@ -67,8 +67,11 @@ class TmdbClient:
                 # Add new unique results
                 results = data.get("results", [])
                 for movie in results:
-                    if movie["id"] not in seen_ids:
-                        seen_ids.add(movie["id"])
+                    movie_id = movie.get("id")
+                    if movie_id is None:
+                        continue  # Skip malformed results without an id
+                    if movie_id not in seen_ids:
+                        seen_ids.add(movie_id)
                         all_results.append(movie)
                 
                 # Log progress for large fetches
@@ -260,8 +263,11 @@ class TmdbClient:
                     
                 results = data.get("results", [])
                 for movie in results:
-                    if movie["id"] not in seen_ids:
-                        seen_ids.add(movie["id"])
+                    movie_id = movie.get("id")
+                    if movie_id is None:
+                        continue  # Skip malformed results without an id
+                    if movie_id not in seen_ids:
+                        seen_ids.add(movie_id)
                         all_results.append(movie)
                         
                 if current_page >= total_pages:

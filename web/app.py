@@ -144,8 +144,12 @@ def run_sync_background():
     sync_cancel.clear()
     sync_state['last_error'] = None
     sync_state['last_status'] = 'running'
-    sync_state['last_run'] = datetime.now().isoformat()
+    start_time = datetime.now()
+    start_iso = start_time.isoformat()
+    sync_state['last_run'] = start_iso
     sync_state['progress'] = None
+    collections_processed = 0
+    error_count = 0
     try:
         from src.app_logic import main as app_main
         import src.app_logic as app_logic_module
@@ -163,20 +167,69 @@ def run_sync_background():
         sys.argv = ['app_logic', '--config', CONFIG_PATH, '--targets', 'auto']
         try:
             app_main()
+            collections_processed = len(app_logic_module.RECIPES)
         finally:
             sys.argv = old_argv
             app_logic_module.RECIPES = original_recipes
             app_logic_module._single_recipe_mode = None
             app_logic_module._cancel_event = None
             app_logic_module._progress_callback = None
-        if sync_cancel.is_set():
-            sync_state['last_status'] = 'cancelled'
-        else:
-            sync_state['last_status'] = 'success'
+        # Record sync history and send notifications
+        duration = str(datetime.now() - start_time).split('.')[0]
+        try:
+            from src.sync_history import SyncHistory
+            from src.notifier import Notifier
+            config = load_config()
+            history = SyncHistory(BASE_DIR)
+            notifier = Notifier(config)
+            if sync_cancel.is_set():
+                sync_state['last_status'] = 'cancelled'
+                history.add_entry({
+                    'timestamp': start_iso,
+                    'duration': duration,
+                    'status': 'cancelled',
+                    'collections': collections_processed,
+                    'errors': error_count,
+                })
+            else:
+                sync_state['last_status'] = 'success'
+                history.add_entry({
+                    'timestamp': start_iso,
+                    'duration': duration,
+                    'status': 'success',
+                    'collections': collections_processed,
+                    'errors': error_count,
+                })
+                notifier.notify_sync_success(duration, collections_processed, error_count)
+        except Exception as hist_err:
+            logger.warning(f"Failed to record sync history: {hist_err}")
+            if sync_cancel.is_set():
+                sync_state['last_status'] = 'cancelled'
+            else:
+                sync_state['last_status'] = 'success'
     except Exception as e:
         sync_state['last_status'] = 'error'
         sync_state['last_error'] = str(e)
         logger.error(f"Sync error: {e}")
+        # Record error in sync history
+        duration = str(datetime.now() - start_time).split('.')[0]
+        try:
+            from src.sync_history import SyncHistory
+            from src.notifier import Notifier
+            config = load_config()
+            history = SyncHistory(BASE_DIR)
+            notifier = Notifier(config)
+            history.add_entry({
+                'timestamp': start_iso,
+                'duration': duration,
+                'status': 'error',
+                'error': str(e),
+                'collections': collections_processed,
+                'errors': error_count + 1,
+            })
+            notifier.notify_sync_error(str(e), duration)
+        except Exception:
+            pass
     finally:
         with sync_lock:
             sync_state['running'] = False
@@ -1262,6 +1315,28 @@ def delete_duplicate():
             mgr.delete_override(dup_new_name)
         except Exception:
             pass
+        # Try to remove the Emby collection for the deleted duplicate
+        try:
+            config = load_config()
+            emby_cfg = config.get('emby', {})
+            if emby_cfg.get('server_url') and emby_cfg.get('api_key'):
+                from src.emby_client import EmbyClient
+                emby = EmbyClient(
+                    server_url=emby_cfg['server_url'],
+                    api_key=emby_cfg['api_key'],
+                    user_id=emby_cfg.get('user_id', ''),
+                    config=config
+                )
+                # Find and delete the collection by name
+                collections = emby.get_all_collections()
+                for col in collections:
+                    if col.get('Name', '').lower() == dup_new_name.lower():
+                        del_url = f"{emby.server_url}/Items/{col['Id']}?api_key={emby.api_key}"
+                        emby.session.delete(del_url, timeout=15)
+                        logger.info(f"Removed Emby collection '{dup_new_name}' for deleted duplicate")
+                        break
+        except Exception as e:
+            logger.warning(f"Could not remove Emby collection for deleted duplicate '{dup_new_name}': {e}")
     return jsonify({'success': True})
 
 
@@ -1277,6 +1352,9 @@ def collection_image_proxy(collection_id):
         return jsonify({'error': 'Emby not configured'}), 400
     image_type = _valid_image_type(request.args.get('type', 'Primary'))
     if not image_type:
+        return Response(b'', status=400, content_type='image/jpeg')
+    # Validate collection_id to prevent path traversal
+    if not collection_id or not re.match(r'^[a-zA-Z0-9]+$', collection_id):
         return Response(b'', status=400, content_type='image/jpeg')
     try:
         import requests as _requests
