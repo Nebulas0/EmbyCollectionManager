@@ -202,7 +202,18 @@ async function showDetail(name) {
         if (data.tmdb_discover_params) html += '<div class="form-group"><label>TMDb Discover Parameters</label><pre style="background:var(--bg);padding:10px;border-radius:4px;font-size:0.85rem;overflow-x:auto">'+JSON.stringify(data.tmdb_discover_params,null,2)+'</pre></div>';
         if (data.trakt_list_params) html += '<div class="form-group"><label>Trakt List Parameters</label><pre style="background:var(--bg);padding:10px;border-radius:4px;font-size:0.85rem;overflow-x:auto">'+JSON.stringify(data.trakt_list_params,null,2)+'</pre></div>';
         const ov = data.override || {};
-        if (Object.keys(ov).length > 0) html += '<div class="alert alert-info" style="margin-top:10px">This recipe has overrides applied.</div>';
+        if (Object.keys(ov).length > 0) {
+            html += '<div class="alert alert-info" style="margin-top:10px"><strong>Active Overrides:</strong><ul style="margin:5px 0 0 20px;padding:0">';
+            if (ov.custom_name) html += `<li>Custom Name: ${ov.custom_name}</li>`;
+            if (ov.item_limit !== null && ov.item_limit !== undefined) html += `<li>Item Limit: ${ov.item_limit === 0 ? '0 (no limit)' : ov.item_limit}</li>`;
+            if (ov.library_ids && ov.library_ids.length > 0) html += `<li>Target Libraries: ${ov.library_ids.join(', ')}</li>`;
+            if (ov.extra_mdblist_urls && ov.extra_mdblist_urls.length > 0) html += `<li>Extra MDBList URLs: ${ov.extra_mdblist_urls.length} URL(s)</li>`;
+            if (ov.extra_trakt_urls && ov.extra_trakt_urls.length > 0) html += `<li>Extra Trakt URLs: ${ov.extra_trakt_urls.length} URL(s)</li>`;
+            if (ov.extra_tmdb_ids && ov.extra_tmdb_ids.length > 0) html += `<li>Extra TMDb IDs: ${ov.extra_tmdb_ids.join(', ')}</li>`;
+            if (ov.custom_poster_url) html += `<li>Custom Poster URL: ${ov.custom_poster_url}</li>`;
+            if (ov.custom_backdrop_url) html += `<li>Custom Backdrop URL: ${ov.custom_backdrop_url}</li>`;
+            html += '</ul></div>';
+        }
         document.getElementById('detail-body').innerHTML = html;
         document.getElementById('detail-edit').style.display = 'block';
         libCheckboxes('detail-libraries', ov.library_ids || []);
