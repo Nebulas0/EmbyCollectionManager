@@ -200,14 +200,22 @@ class EmbyClient(MediaServerClient):
                 # Format: "tmdb.12345,tmdb.67890,..." (each must be prefixed with tmdb.)
                 tmdb_id_query = ','.join([f"tmdb.{tmdb_id}" for tmdb_id in batch])
                 
+                # When searching all libraries (no ParentId), movies that exist
+                # in multiple libraries (Movies, Movies 4K, Movies Int, etc.)
+                # appear multiple times in the results. Set Limit high enough
+                # to account for duplicates. With N libraries, each TMDb ID
+                # can match up to N items, so use total_to_find * 10 as a
+                # safe upper bound. When searching per-library (with ParentId),
+                # duplicates within a single library are rare, so the same
+                # high Limit is more than sufficient.
+                search_limit = max(total_to_find * 10, 500)
+                
                 params = {
                     'IncludeItemTypes': 'Movie',
                     'Recursive': 'true',
                     'Fields': 'ProviderIds',
                     'AnyProviderIdEquals': tmdb_id_query,
-                    # Critical: Set Limit to total_to_find to ensure we get all matches
-                    # Setting it to batch_size would limit results per batch
-                    'Limit': total_to_find,
+                    'Limit': search_limit,
                     # Add a cache-busting parameter to avoid stale results
                     '_cb': str(uuid.uuid4().hex),
                 }
