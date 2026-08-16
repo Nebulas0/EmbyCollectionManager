@@ -207,7 +207,27 @@ def sync_scheduler(config_path="config/config.yaml"):
         if is_sync_running():
             logger.info("Scheduler: sync already running, skipping scheduled run")
         else:
-            run_sync_once(config_path)
+            # Mark sync as running in web UI state so the UI shows correct status
+            # and prevents concurrent manual syncs
+            try:
+                from web.app import sync_state, sync_lock
+                with sync_lock:
+                    sync_state['running'] = True
+                    sync_state['last_status'] = 'running'
+                    sync_state['last_run'] = datetime.now().isoformat()
+                    sync_state['progress'] = None
+            except Exception:
+                pass
+            try:
+                run_sync_once(config_path)
+            finally:
+                try:
+                    from web.app import sync_state, sync_lock
+                    with sync_lock:
+                        sync_state['running'] = False
+                        sync_state['progress'] = None
+                except Exception:
+                    pass
         sleep_duration = (next_sync - datetime.now()).total_seconds()
         if sleep_duration < 0:
             sleep_duration = 0

@@ -892,7 +892,42 @@ def save_traktlist():
     d = config.get('traktlists', {}).get('directory', 'traktlists')
     p = os.path.join(BASE_DIR, d)
     os.makedirs(p, exist_ok=True)
-    with open(os.path.join(p, fn), 'w', encoding='utf-8') as f:
+    # Check if collection_name changed and clean up orphaned state
+    fp = os.path.join(p, fn)
+    if os.path.exists(fp):
+        old_col_name = os.path.splitext(fn)[0]
+        try:
+            import yaml as _yaml
+            with open(fp, 'r', encoding='utf-8') as fh:
+                old_parsed = _yaml.safe_load(fh.read())
+            if isinstance(old_parsed, dict) and old_parsed.get('collection_name'):
+                old_col_name = old_parsed['collection_name']
+        except Exception:
+            pass
+        # Parse new content to get new collection_name
+        new_col_name = os.path.splitext(fn)[0]
+        try:
+            import yaml as _yaml
+            new_parsed = _yaml.safe_load(data.get('content', ''))
+            if isinstance(new_parsed, dict) and new_parsed.get('collection_name'):
+                new_col_name = new_parsed['collection_name']
+        except Exception:
+            pass
+        # If collection_name changed, clean up old state
+        if old_col_name != new_col_name:
+            state = load_state()
+            cur = set(state.get('enabled_recipes', []))
+            if old_col_name in cur:
+                cur.discard(old_col_name)
+                state['enabled_recipes'] = list(cur)
+                save_state(state)
+            try:
+                from src.recipe_override import RecipeOverrideManager
+                mgr = RecipeOverrideManager(BASE_DIR)
+                mgr.delete_override(old_col_name)
+            except Exception:
+                pass
+    with open(fp, 'w', encoding='utf-8') as f:
         f.write(data.get('content', ''))
     return jsonify({'success': True})
 
@@ -979,7 +1014,42 @@ def save_mdblist():
     d = config.get('mdblists', {}).get('directory', 'mdblists')
     p = os.path.join(BASE_DIR, d)
     os.makedirs(p, exist_ok=True)
-    with open(os.path.join(p, fn), 'w', encoding='utf-8') as f:
+    # Check if collection_name changed and clean up orphaned state
+    fp = os.path.join(p, fn)
+    if os.path.exists(fp):
+        old_col_name = os.path.splitext(fn)[0]
+        try:
+            import yaml as _yaml
+            with open(fp, 'r', encoding='utf-8') as fh:
+                old_parsed = _yaml.safe_load(fh.read())
+            if isinstance(old_parsed, dict) and old_parsed.get('collection_name'):
+                old_col_name = old_parsed['collection_name']
+        except Exception:
+            pass
+        # Parse new content to get new collection_name
+        new_col_name = os.path.splitext(fn)[0]
+        try:
+            import yaml as _yaml
+            new_parsed = _yaml.safe_load(data.get('content', ''))
+            if isinstance(new_parsed, dict) and new_parsed.get('collection_name'):
+                new_col_name = new_parsed['collection_name']
+        except Exception:
+            pass
+        # If collection_name changed, clean up old state
+        if old_col_name != new_col_name:
+            state = load_state()
+            cur = set(state.get('enabled_recipes', []))
+            if old_col_name in cur:
+                cur.discard(old_col_name)
+                state['enabled_recipes'] = list(cur)
+                save_state(state)
+            try:
+                from src.recipe_override import RecipeOverrideManager
+                mgr = RecipeOverrideManager(BASE_DIR)
+                mgr.delete_override(old_col_name)
+            except Exception:
+                pass
+    with open(fp, 'w', encoding='utf-8') as f:
         f.write(data.get('content', ''))
     return jsonify({'success': True})
 
@@ -1423,7 +1493,6 @@ def next_sync():
 @app.route('/api/export_config')
 def export_config():
     """Export all config as a single JSON file."""
-    import zipfile
     import tempfile
     config = load_config()
     state = load_state()
@@ -1451,10 +1520,17 @@ def export_config():
         'exported_at': datetime.now().isoformat(),
         'version': 1,
     }
+    # Use a temp file that we clean up after sending
     tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
     json.dump(export, tmp, indent=2)
     tmp.close()
-    return send_file(tmp.name, as_attachment=True, download_name='ecm_config_backup.json')
+    try:
+        return send_file(tmp.name, as_attachment=True, download_name='ecm_config_backup.json')
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except Exception:
+            pass
 
 
 @app.route('/api/import_config', methods=['POST'])

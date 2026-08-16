@@ -1,5 +1,8 @@
 import requests
+import logging
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 class MediaServerClient:
     """
@@ -27,20 +30,21 @@ class MediaServerClient:
             response.raise_for_status()
             return response.json()
         except requests.exceptions.JSONDecodeError as e:
-            print(f"API response is not valid JSON: {e}")
-            print(f"Response text: {response.text[:200]}")
+            logger.error(f"API response is not valid JSON: {e}")
+            try:
+                logger.error(f"Response text: {response.text[:200]}")
+            except Exception:
+                pass
             return None
         except requests.exceptions.HTTPError as e:
-            print(f"API request failed with HTTP error: {e}")
-            print(f"Request URL: {url}")
-            print(f"Request method: {method}")
-            print(f"Request params: {kwargs.get('params')}")
-            print(f"Request JSON: {kwargs.get('json')}")
+            logger.error(f"API request failed with HTTP error: {e}")
+            logger.error(f"Request URL: {url}")
+            logger.debug(f"Request method: {method}, params: {kwargs.get('params')}, json: {kwargs.get('json')}")
             if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                print(f"Response text: {e.response.text[:200]}")
+                logger.error(f"Response text: {e.response.text[:200]}")
             return None
         except requests.RequestException as e:
-            print(f"API request failed: {e}")
+            logger.error(f"API request failed: {e}")
             return None
 
     def get_or_create_collection(self, collection_name: str) -> Optional[str]:

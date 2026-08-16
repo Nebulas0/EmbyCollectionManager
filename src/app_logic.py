@@ -179,6 +179,34 @@ def main():
     recipe_overrides = override_mgr.get_all_overrides()
     recipe_duplicates = override_mgr.get_duplicates()
 
+    # Calculate global progress total across all processors
+    _global_progress_index = 0
+    _global_progress_total = 0
+    # Count Trakt collections
+    try:
+        trakt_processor = TraktListProcessor(tmdb, trakt, config)
+        _trakt_collections = trakt_processor.scan_traktlists_directory()
+        _global_progress_total += len(_trakt_collections)
+    except Exception:
+        _trakt_collections = []
+    # Count MDBList collections
+    try:
+        mdblist_processor = MDBListProcessor(tmdb, mdblist, config)
+        _mdblist_collections = mdblist_processor.scan_mdblists_directory()
+        _global_progress_total += len(_mdblist_collections)
+    except Exception:
+        _mdblist_collections = []
+    # Count built-in recipes (including duplicates)
+    _global_progress_total += len(effective_recipes) if 'effective_recipes' in dir() else len(active_recipes)
+    # Note: effective_recipes is built later, so we'll adjust there
+    # For now, count active_recipes + duplicates
+    _recipe_count = len(active_recipes)
+    for dup in recipe_duplicates:
+        orig_name = dup.get('original_name', '')
+        if any(r.get('name') == orig_name for r in active_recipes):
+            _recipe_count += 1
+    _global_progress_total = len(_trakt_collections) + len(_mdblist_collections) + _recipe_count
+
     # Process Trakt lists from traktlists directory FIRST for testing
     try:
         trakt_processor = TraktListProcessor(tmdb, trakt, config)
@@ -193,7 +221,7 @@ def main():
                         break
                     collection_name = collection_info['name']
                     tmdb_ids = collection_info['tmdb_ids']
-                    _report_progress(collection_name, idx, len(trakt_collections))
+                    _report_progress(collection_name, _global_progress_index, _global_progress_total)
                     
                     if not tmdb_ids:
                         logger.warning(f"No movies found for Trakt collection '{collection_name}', skipping")
@@ -299,6 +327,8 @@ def main():
                         
                 except Exception as e:
                     logger.error(f"Error processing Trakt collection '{collection_info.get('name', 'Unknown')}': {e}")
+                finally:
+                    _global_progress_index += 1
         else:
             logger.info("No Trakt list collections found to process")
             
@@ -319,7 +349,7 @@ def main():
                         break
                     collection_name = collection_info['name']
                     tmdb_ids = collection_info['tmdb_ids']
-                    _report_progress(collection_name, idx, len(mdblist_collections))
+                    _report_progress(collection_name, _global_progress_index, _global_progress_total)
                     
                     if not tmdb_ids:
                         logger.warning(f"No movies found for MDBList collection '{collection_name}', skipping")
@@ -428,6 +458,8 @@ def main():
                         
                 except Exception as e:
                     logger.error(f"Error processing MDBList collection '{collection_info.get('name', 'Unknown')}': {e}")
+                finally:
+                    _global_progress_index += 1
         else:
             logger.info("No MDBList collections found to process")
             
@@ -437,6 +469,7 @@ def main():
     # Build the effective recipe list: original recipes + duplicates
     # active_recipes was computed earlier (may be patched by web UI for filtering)
     effective_recipes = list(active_recipes)
+    # Update global progress total with actual effective recipe count
     for dup in recipe_duplicates:
         # Find the original recipe
         orig_name = dup.get('original_name', '')
@@ -450,11 +483,14 @@ def main():
             effective_recipes.append(dup_recipe)
             logger.info(f"Added duplicate recipe: '{dup_recipe['name']}' based on '{orig_name}'")
     
+    # Recalculate global progress total with effective recipes
+    _global_progress_total = len(_trakt_collections) + len(_mdblist_collections) + len(effective_recipes)
+    
     # Process standard TMDb collections from recipes (including duplicates)
     for idx, recipe in enumerate(effective_recipes, 1):
         if _check_cancelled():
             break
-        _report_progress(recipe.get('name', 'Unknown'), idx, len(effective_recipes))
+        _report_progress(recipe.get('name', 'Unknown'), _global_progress_index, _global_progress_total)
         # Check if this recipe's targets include our active server
         targets = recipe.get('target_servers', ['emby'])
         
@@ -710,6 +746,8 @@ def main():
                         logger.info(f"No artwork URLs found or specified for collection '{collection_name}', skipping artwork update.")
             except Exception as e:
                 logger.error(f"Error processing collection '{collection_name}' for Emby: {e}")
+            finally:
+                _global_progress_index += 1
 
     # Remove disabled collections from Emby
     # If a collection was previously synced but is now disabled (not in _enabled_names),
