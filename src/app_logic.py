@@ -243,11 +243,13 @@ def main():
                         collection_name = list_override['custom_name']
                         collection_info['name'] = collection_name
                         logger.info(f"Using custom collection name: '{collection_name}'")
-                    if list_override.get('item_limit'):
+                    if list_override.get('item_limit') is not None:
                         limit = list_override['item_limit']
-                        if len(tmdb_ids) > limit:
+                        if limit > 0 and len(tmdb_ids) > limit:
                             tmdb_ids = tmdb_ids[:limit]
                             logger.info(f"Limited to {limit} items for '{collection_name}'")
+                        elif limit == 0:
+                            logger.info(f"No item limit for '{collection_name}' (0 = unlimited)")
                     extra_mdblist_urls = list_override.get('extra_mdblist_urls', [])
                     extra_trakt_urls = list_override.get('extra_trakt_urls', [])
                     extra_tmdb_ids = list_override.get('extra_tmdb_ids', [])
@@ -373,11 +375,13 @@ def main():
                         collection_info['name'] = collection_name
                         logger.info(f"Using custom collection name: '{collection_name}'")
                     # Apply item limit override
-                    if list_override.get('item_limit'):
+                    if list_override.get('item_limit') is not None:
                         limit = list_override['item_limit']
-                        if len(tmdb_ids) > limit:
+                        if limit > 0 and len(tmdb_ids) > limit:
                             tmdb_ids = tmdb_ids[:limit]
                             logger.info(f"Limited to {limit} items for '{collection_name}'")
+                        elif limit == 0:
+                            logger.info(f"No item limit for '{collection_name}' (0 = unlimited)")
                     # Merge extra items from override
                     extra_mdblist_urls = list_override.get('extra_mdblist_urls', [])
                     extra_trakt_urls = list_override.get('extra_trakt_urls', [])
@@ -515,7 +519,7 @@ def main():
             
             # Apply override: custom item_limit
             recipe_override_cfg = recipe_overrides.get(collection_name, {})
-            if 'item_limit' in recipe_override_cfg and recipe_override_cfg['item_limit']:
+            if 'item_limit' in recipe_override_cfg and recipe_override_cfg['item_limit'] is not None:
                 item_limit = recipe_override_cfg['item_limit']
                 logger.info(f"Using custom item_limit {item_limit} for '{collection_name}'")
             
@@ -553,10 +557,14 @@ def main():
                 # Convert item_limit (number of movies) to page_limit (number of pages)
                 # TMDb API returns 20 movies per page
                 import math as _math
-                page_limit = _math.ceil(item_limit / 20) if item_limit else 1
+                # item_limit=0 means no limit - fetch up to 50 pages (1000 movies)
+                if item_limit and item_limit > 0:
+                    page_limit = _math.ceil(item_limit / 20)
+                else:
+                    page_limit = 50  # No limit - fetch up to 1000 movies
                 discovered_movies = tmdb.discover_movies(tmdb_discover_params, page_limit)
-                # Truncate to item_limit
-                if item_limit and len(discovered_movies) > item_limit:
+                # Truncate to item_limit (only if limit > 0)
+                if item_limit and item_limit > 0 and len(discovered_movies) > item_limit:
                     discovered_movies = discovered_movies[:item_limit]
                 tmdb_ids = [movie['id'] for movie in discovered_movies]
             

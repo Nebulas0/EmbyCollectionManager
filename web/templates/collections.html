@@ -222,7 +222,7 @@ async function saveOverride() {
     const itemLimitVal = document.getElementById('detail-item-limit').value.trim();
     const override = {
         custom_name: document.getElementById('detail-custom-name').value.trim() || null,
-        item_limit: itemLimitVal ? parseInt(itemLimitVal) : null,
+        item_limit: itemLimitVal !== "" && itemLimitVal !== null ? parseInt(itemLimitVal) : null,
         library_ids: getCheckedLibs('detail-libraries'),
         extra_mdblist_urls: document.getElementById('detail-mdblist-urls').value.split('\n').map(s=>s.trim()).filter(s=>s),
         extra_trakt_urls: document.getElementById('detail-trakt-urls').value.split('\n').map(s=>s.trim()).filter(s=>s),
