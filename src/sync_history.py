@@ -36,6 +36,9 @@ class SyncHistory:
 
     def get_history(self, limit: int = 20) -> List[Dict[str, Any]]:
         """Get recent sync history."""
+        # Validate limit: must be a positive integer
+        if not isinstance(limit, int) or limit <= 0:
+            limit = 20
         data = self._load()
         return data[-limit:][::-1]  # Most recent first
 

@@ -1182,8 +1182,18 @@ def duplicate_recipe():
     new_name = data.get('new_name')
     if not original_name or not new_name:
         return jsonify({'error': 'Missing original_name or new_name'}), 400
+    # Validate that the original recipe exists
+    from src.collection_recipes import RECIPES
+    if not any(r.get('name') == original_name for r in RECIPES):
+        return jsonify({'error': f'Original recipe not found: {original_name}'}), 400
+    # Validate that new_name doesn't collide with existing recipes or duplicates
+    if any(r.get('name') == new_name for r in RECIPES):
+        return jsonify({'error': f'A recipe with this name already exists: {new_name}'}), 400
     from src.recipe_override import RecipeOverrideManager
     mgr = RecipeOverrideManager(BASE_DIR)
+    existing_dups = mgr.get_duplicates()
+    if any(d.get('new_name') == new_name for d in existing_dups):
+        return jsonify({'error': f'A duplicate with this name already exists: {new_name}'}), 400
     duplicate = {
         'original_name': original_name,
         'new_name': new_name,
@@ -1221,7 +1231,10 @@ def delete_duplicate():
     duplicates = mgr.get_duplicates()
     dup_new_name = None
     if index is not None:
-        idx = int(index)
+        try:
+            idx = int(index)
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid index'}), 400
         if 0 <= idx < len(duplicates):
             dup_new_name = duplicates[idx].get('new_name')
             mgr.delete_duplicate(idx)
