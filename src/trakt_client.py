@@ -34,6 +34,10 @@ class TraktClient:
             'trakt-api-version': self.API_VERSION,
             'trakt-api-key': self.client_id
         })
+        
+        # Add authorization header if access token is available
+        if self.access_token:
+            self.session.headers['Authorization'] = f'Bearer {self.access_token}'
 
     def close(self):
         """Close the HTTP session and release connection pool resources."""
@@ -44,11 +48,7 @@ class TraktClient:
 
     def __del__(self):
         self.close()
-        
-        # Add authorization header if access token is available
-        if self.access_token:
-            self.session.headers['Authorization'] = f'Bearer {self.access_token}'
-    
+
     def _make_request(self, method: str, endpoint: str, **kwargs) -> Optional[Dict]:
         """
         Make an API request with error handling and rate limiting.

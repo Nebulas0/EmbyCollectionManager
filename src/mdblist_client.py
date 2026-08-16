@@ -32,6 +32,10 @@ class MDBListClient:
             'User-Agent': 'Emby Collection Manager/1.0'
         })
 
+        # Rate limiting
+        self.last_request_time = 0
+        self.min_request_interval = 0.1  # 100ms between requests
+
     def close(self):
         """Close the HTTP session and release connection pool resources."""
         try:
@@ -41,11 +45,7 @@ class MDBListClient:
 
     def __del__(self):
         self.close()
-        
-        # Rate limiting
-        self.last_request_time = 0
-        self.min_request_interval = 0.1  # 100ms between requests
-        
+
     def _make_request(self, endpoint: str, params: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
         """
         Make a request to the MDBList API with rate limiting.

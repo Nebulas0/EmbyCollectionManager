@@ -1592,11 +1592,11 @@ def import_config():
             save_state(data['state'])
         if 'list_metadata' in data:
             meta_path = os.path.join(BASE_DIR, 'config', 'list_metadata.json')
-            with open(meta_path, 'w') as f:
+            with open(meta_path, 'w', encoding='utf-8') as f:
                 json.dump(data['list_metadata'], f, indent=2)
         if 'recipe_overrides' in data:
             ov_path = os.path.join(BASE_DIR, 'config', 'recipe_overrides.json')
-            with open(ov_path, 'w') as f:
+            with open(ov_path, 'w', encoding='utf-8') as f:
                 json.dump(data['recipe_overrides'], f, indent=2)
         return jsonify({'success': True})
     except Exception as e:

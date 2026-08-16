@@ -32,7 +32,8 @@ class EmbyClient(MediaServerClient):
             'IncludeItemTypes': 'BoxSet',
             'Recursive': 'true',
             'SearchTerm': collection_name,
-            'Fields': 'Name'
+            'Fields': 'Name',
+            'Limit': 200  # Ensure we get all matching collections
         }
         endpoint = f"/Users/{self.user_id}/Items"
         logger.info(f"Searching for collection: '{collection_name}'")
